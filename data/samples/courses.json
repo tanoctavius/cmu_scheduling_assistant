@@ -1,0 +1,231 @@
+[
+  {
+    "course_num": "15-112",
+    "title": "Fundamentals of Programming and Computer Science",
+    "units": 12.0,
+    "prereqs": null,
+    "description": "A technical introduction to the fundamentals of programming with an emphasis on producing clear, robust, and reasonably efficient code using top-down design, informal analysis, and effective testing and debugging.",
+    "fce_workload_hours": 12.5,
+    "fce_rating": 4.5,
+    "sections": [
+      {
+        "course_num": "15-112",
+        "title": "Fundamentals of Programming and Computer Science",
+        "units": 12.0,
+        "section_id": "A",
+        "days": ["M", "W", "F"],
+        "begin": "10:00",
+        "end": "10:50",
+        "location": "DH 2210"
+      },
+      {
+        "course_num": "15-112",
+        "title": "Fundamentals of Programming and Computer Science",
+        "units": 12.0,
+        "section_id": "B",
+        "days": ["M", "W", "F"],
+        "begin": "13:00",
+        "end": "13:50",
+        "location": "DH 2210"
+      }
+    ]
+  },
+  {
+    "course_num": "15-122",
+    "title": "Principles of Imperative Computation",
+    "units": 10.0,
+    "prereqs": {
+      "type": "course",
+      "course_num": "15-112"
+    },
+    "description": "Provides a transition from elementary programming to the fundamental techniques used in the design and implementation of computer software, with an emphasis on writing correct programs and reasoning about them.",
+    "fce_workload_hours": 15.0,
+    "fce_rating": 4.2,
+    "sections": [
+      {
+        "course_num": "15-122",
+        "title": "Principles of Imperative Computation",
+        "units": 10.0,
+        "section_id": "A",
+        "days": ["T", "R"],
+        "begin": "09:30",
+        "end": "10:50",
+        "location": "GHC 4401"
+      }
+    ]
+  },
+  {
+    "course_num": "15-150",
+    "title": "Principles of Functional Programming",
+    "units": 10.0,
+    "prereqs": {
+      "type": "and",
+      "operands": [
+        {
+          "type": "course",
+          "course_num": "15-122"
+        },
+        {
+          "type": "or",
+          "operands": [
+            {
+              "type": "course",
+              "course_num": "21-127"
+            },
+            {
+              "type": "course",
+              "course_num": "15-151"
+            }
+          ]
+        }
+      ]
+    },
+    "description": "An introduction to programming based on a 'functional' model of computation, emphasizing recursion, higher-order functions, inductive reasoning, and parallelism.",
+    "fce_workload_hours": 13.0,
+    "fce_rating": 4.3,
+    "sections": [
+      {
+        "course_num": "15-150",
+        "title": "Principles of Functional Programming",
+        "units": 10.0,
+        "section_id": "A",
+        "days": ["T", "R"],
+        "begin": "11:00",
+        "end": "12:20",
+        "location": "DH 2315"
+      }
+    ]
+  },
+  {
+    "course_num": "15-213",
+    "title": "Introduction to Computer Systems",
+    "units": 12.0,
+    "prereqs": {
+      "type": "course",
+      "course_num": "15-122"
+    },
+    "description": "A programmer's view of how computer systems execute programs, store information, and communicate, covering data representation, machine-level code, memory hierarchy, and system-level I/O.",
+    "fce_workload_hours": 16.0,
+    "fce_rating": 4.6,
+    "sections": [
+      {
+        "course_num": "15-213",
+        "title": "Introduction to Computer Systems",
+        "units": 12.0,
+        "section_id": "A",
+        "days": ["M", "W"],
+        "begin": "14:00",
+        "end": "15:20",
+        "location": "GHC 4307"
+      }
+    ]
+  },
+  {
+    "course_num": "21-127",
+    "title": "Concepts of Mathematics",
+    "units": 12.0,
+    "prereqs": null,
+    "description": "Introduces the basic concepts, ideas, and tools involved in doing mathematics, with a focus on reading and writing rigorous proofs.",
+    "fce_workload_hours": 10.0,
+    "fce_rating": 4.0,
+    "sections": [
+      {
+        "course_num": "21-127",
+        "title": "Concepts of Mathematics",
+        "units": 12.0,
+        "section_id": "A",
+        "days": ["M", "W", "F"],
+        "begin": "11:00",
+        "end": "11:50",
+        "location": "WEH 7500"
+      }
+    ]
+  },
+  {
+    "course_num": "21-259",
+    "title": "Calculus in Three Dimensions",
+    "units": 9.0,
+    "prereqs": {
+      "type": "or",
+      "operands": [
+        {
+          "type": "course",
+          "course_num": "21-122"
+        },
+        {
+          "type": "course",
+          "course_num": "21-124"
+        }
+      ]
+    },
+    "description": "Vectors, lines, planes, and surfaces in three-dimensional space; partial derivatives; multiple integrals; and vector calculus including Green's and Stokes' theorems.",
+    "fce_workload_hours": 9.0,
+    "fce_rating": 3.8,
+    "sections": [
+      {
+        "course_num": "21-259",
+        "title": "Calculus in Three Dimensions",
+        "units": 9.0,
+        "section_id": "A",
+        "days": ["M", "W", "F"],
+        "begin": "09:00",
+        "end": "09:50",
+        "location": "WEH 7201"
+      }
+    ]
+  },
+  {
+    "course_num": "21-241",
+    "title": "Matrices and Linear Transformations",
+    "units": 10.0,
+    "prereqs": {
+      "type": "or",
+      "operands": [
+        {
+          "type": "course",
+          "course_num": "21-120"
+        },
+        {
+          "type": "course",
+          "course_num": "21-122"
+        }
+      ]
+    },
+    "description": "A first course in linear algebra covering systems of linear equations, matrices, determinants, vector spaces, eigenvalues and eigenvectors, and applications.",
+    "fce_workload_hours": 9.5,
+    "fce_rating": 3.9,
+    "sections": [
+      {
+        "course_num": "21-241",
+        "title": "Matrices and Linear Transformations",
+        "units": 10.0,
+        "section_id": "A",
+        "days": ["T", "R"],
+        "begin": "13:30",
+        "end": "14:50",
+        "location": "WEH 7500"
+      }
+    ]
+  },
+  {
+    "course_num": "76-101",
+    "title": "Interpretation and Argument",
+    "units": 9.0,
+    "prereqs": null,
+    "description": "A writing course in which students analyze and construct arguments across a range of academic sources, developing skills in research, revision, and rhetorical analysis.",
+    "fce_workload_hours": 8.0,
+    "fce_rating": 4.1,
+    "sections": [
+      {
+        "course_num": "76-101",
+        "title": "Interpretation and Argument",
+        "units": 9.0,
+        "section_id": "M",
+        "days": ["T", "R"],
+        "begin": "15:30",
+        "end": "16:50",
+        "location": "BH 235A"
+      }
+    ]
+  }
+]

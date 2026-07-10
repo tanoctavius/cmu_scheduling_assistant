@@ -31,6 +31,10 @@ what was human-written vs. agent-generated, and what review each piece received.
 | Devcontainer (`.devcontainer/devcontainer.json`, `.devcontainer/Dockerfile`) | agent-generated | Octavius | skim |
 | README + conventions (`README.md`, `CONTRIBUTING.md`) | agent-generated | Octavius | skim |
 | Health endpoint + test (`backend/app/main.py`, `backend/tests/test_health.py`) | agent-generated | Octavius | skim |
+| Core data models (`backend/app/models.py`) | agent-generated | \<YOUR NAME\> | reviewed |
+| Sample course fixtures (`data/samples/courses.json`) | agent-generated | \<YOUR NAME\> | reviewed |
+| Data loader (`backend/app/data_loader.py`) | agent-generated | \<YOUR NAME\> | skim |
+| Model/fixture tests (`backend/tests/test_models.py`) | agent-generated | \<YOUR NAME\> | skim |
 
 <!--
 Each build stage appends its rows below this line. Keep entries in stage order.
