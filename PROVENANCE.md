@@ -42,6 +42,8 @@ what was human-written vs. agent-generated, and what review each piece received.
 | Ranking function (`backend/app/ranking.py`) — **correctness-critical**; weighted FCE/interest heuristic | agent-generated | Octavius | strict |
 | `Schedule` result model added to models (`backend/app/models.py`) | agent-generated | Octavius | reviewed |
 | Solver/ranking tests (`backend/tests/test_solver.py`) — property-style, 100% branch cov; caught a real conflict bug | agent-generated | Octavius | strict |
+| Claim verifier (`backend/app/verifier.py`) — **correctness-critical**; the LLM-output safety gate + claim schema | agent-generated | \<YOUR NAME\> | strict |
+| Verifier tests (`backend/tests/test_verifier.py`) — 100% branch cov; each claim type passes/fails with correction | agent-generated | \<YOUR NAME\> | strict |
 
 <!--
 Each build stage appends its rows below this line. Keep entries in stage order.
