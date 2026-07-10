@@ -35,6 +35,9 @@ what was human-written vs. agent-generated, and what review each piece received.
 | Sample course fixtures (`data/samples/courses.json`) | agent-generated | Octavius | reviewed |
 | Data loader (`backend/app/data_loader.py`) | agent-generated | Octavius | skim |
 | Model/fixture tests (`backend/tests/test_models.py`) | agent-generated | Octavius | skim |
+| Prereq classifier (`backend/app/prereq.py`) — **correctness-critical** | agent-generated | \<YOUR NAME\> | strict |
+| Prereq classifier tests (`backend/tests/test_prereq.py`) — 100% branch cov | agent-generated | \<YOUR NAME\> | strict |
+| `PrereqUnparsed` node added to models (`backend/app/models.py`) — encodes the unparseable→`unconfirmed` safety rule | agent-generated | \<YOUR NAME\> | strict |
 
 <!--
 Each build stage appends its rows below this line. Keep entries in stage order.

@@ -15,9 +15,16 @@ A ``PrereqNode`` is one of three shapes, distinguished by a ``type`` tag:
 - ``{"type": "course", "course_num": "21-127"}`` — a leaf: one required course.
 - ``{"type": "and", "operands": [ ...nodes... ]}`` — all operands must hold.
 - ``{"type": "or",  "operands": [ ...nodes... ]}`` — at least one must hold.
+- ``{"type": "unparsed", "raw": "..."}`` — ingestion found prerequisite text but
+  could not parse it into the tree above. This is **not** "no prereqs"; it means
+  "unknown requirement". The classifier treats it as unknown and defaults the
+  course to ``unconfirmed`` (never ``blocked``) — the non-negotiable safety rule.
 
-A course with no prerequisites has ``prereqs = None`` (not an empty ``and``),
-so "no requirement" and "an empty/unparseable requirement" stay distinguishable.
+Three distinct situations, three distinct representations — keep them separate:
+
+- ``prereqs = None``  → the course genuinely has **no** prerequisites → eligible.
+- ``prereqs`` = a tree → a real, parsed requirement → evaluated normally.
+- ``PrereqUnparsed``  → we had prereq text but **could not parse it** → unconfirmed.
 
 Example — "21-127 AND (15-112 OR 15-122)"::
 
@@ -76,9 +83,22 @@ class PrereqOr(BaseModel):
     operands: list[PrereqNode]
 
 
+class PrereqUnparsed(BaseModel):
+    """Prerequisite text ingestion could not parse into an AND/OR tree.
+
+    Carries the original ``raw`` text for display/debugging. Semantically it is
+    an *unknown* requirement: the classifier defaults such a course to
+    ``unconfirmed`` (never ``blocked``) so the failure mode is an extra
+    confirmation question, never a silently hidden course.
+    """
+
+    type: Literal["unparsed"] = "unparsed"
+    raw: str
+
+
 # Discriminated union: Pydantic picks the variant by the "type" tag.
 PrereqNode = Annotated[
-    Union[PrereqCourse, PrereqAnd, PrereqOr],
+    Union[PrereqCourse, PrereqAnd, PrereqOr, PrereqUnparsed],
     Field(discriminator="type"),
 ]
 
