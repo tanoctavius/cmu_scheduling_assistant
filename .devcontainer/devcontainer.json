@@ -1,0 +1,32 @@
+{
+  "name": "cmu-scheduler",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "workspaceFolder": "/workspaces/cmu-scheduler",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/cmu-scheduler,type=bind",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "dbaeumer.vscode-eslint"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/workspaces/cmu-scheduler/backend/.venv/bin/python"
+      }
+    }
+  },
+  "remoteEnv": {
+    "UV_PROJECT_ENVIRONMENT": "/workspaces/cmu-scheduler/backend/.venv",
+    "UV_LINK_MODE": "copy"
+  },
+  "postCreateCommand": "cd backend && uv sync",
+  "remoteUser": "vscode"
+}
