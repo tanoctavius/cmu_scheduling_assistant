@@ -156,6 +156,28 @@ class StudentProfile(BaseModel):
     career_goals: list[str] = Field(default_factory=list)
 
 
+# --- Solver output -----------------------------------------------------------
+
+
+class Schedule(BaseModel):
+    """A candidate schedule: one section per course, plus its computed totals.
+
+    Produced by the solver. ``score`` is the ranking score (higher is better);
+    the totals are cached so downstream consumers (the ranker's explanation, the
+    claim verifier) don't have to recompute them.
+    """
+
+    sections: list[Section] = Field(default_factory=list)
+    total_units: float = 0.0
+    total_workload_hours: float = 0.0
+    score: float = 0.0
+
+    @property
+    def course_nums(self) -> list[str]:
+        """Course numbers on this schedule, in section order."""
+        return [s.course_num for s in self.sections]
+
+
 # Resolve the forward references used in the recursive prereq operands.
 PrereqAnd.model_rebuild()
 PrereqOr.model_rebuild()

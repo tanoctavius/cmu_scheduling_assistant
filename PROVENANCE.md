@@ -38,6 +38,10 @@ what was human-written vs. agent-generated, and what review each piece received.
 | Prereq classifier (`backend/app/prereq.py`) — **correctness-critical** | agent-generated | Octavius | strict |
 | Prereq classifier tests (`backend/tests/test_prereq.py`) — 100% branch cov | agent-generated | Octavius| strict |
 | `PrereqUnparsed` node added to models (`backend/app/models.py`) — encodes the unparseable→`unconfirmed` safety rule | agent-generated | Octavius | strict |
+| Fused solver (`backend/app/solver.py`) — **correctness-critical**; branch-and-bound top-K | agent-generated | \<YOUR NAME\> | strict |
+| Ranking function (`backend/app/ranking.py`) — **correctness-critical**; weighted FCE/interest heuristic | agent-generated | \<YOUR NAME\> | strict |
+| `Schedule` result model added to models (`backend/app/models.py`) | agent-generated | \<YOUR NAME\> | reviewed |
+| Solver/ranking tests (`backend/tests/test_solver.py`) — property-style, 100% branch cov; caught a real conflict bug | agent-generated | \<YOUR NAME\> | strict |
 
 <!--
 Each build stage appends its rows below this line. Keep entries in stage order.
