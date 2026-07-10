@@ -27,10 +27,10 @@ what was human-written vs. agent-generated, and what review each piece received.
 
 | Artifact | Origin | Reviewer | Review type |
 |---|---|---|---|
-| Repo skeleton (`backend/`, `frontend/`, `data/`, `docs/`, `scripts/`, `pyproject.toml`, `.gitignore`) | agent-generated | \<YOUR NAME\> | skim |
-| Devcontainer (`.devcontainer/devcontainer.json`, `.devcontainer/Dockerfile`) | agent-generated | \<YOUR NAME\> | skim |
-| README + conventions (`README.md`, `CONTRIBUTING.md`) | agent-generated | \<YOUR NAME\> | skim |
-| Health endpoint + test (`backend/app/main.py`, `backend/tests/test_health.py`) | agent-generated | \<YOUR NAME\> | skim |
+| Repo skeleton (`backend/`, `frontend/`, `data/`, `docs/`, `scripts/`, `pyproject.toml`, `.gitignore`) | agent-generated | Octavius | skim |
+| Devcontainer (`.devcontainer/devcontainer.json`, `.devcontainer/Dockerfile`) | agent-generated | Octavius | skim |
+| README + conventions (`README.md`, `CONTRIBUTING.md`) | agent-generated | Octavius | skim |
+| Health endpoint + test (`backend/app/main.py`, `backend/tests/test_health.py`) | agent-generated | Octavius | skim |
 
 <!--
 Each build stage appends its rows below this line. Keep entries in stage order.
