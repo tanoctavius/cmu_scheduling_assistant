@@ -109,10 +109,22 @@ button:disabled {
 }
 
 /* Checklist */
+.checklist-group {
+  margin-top: 14px;
+}
+
+.checklist-header {
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  margin: 0 0 4px;
+}
+
 .checklist {
   list-style: none;
   padding: 0;
-  margin: 8px 0 0;
+  margin: 0;
 }
 
 .checklist li label {

@@ -9,15 +9,20 @@ export interface StudentProfile {
   commitments?: unknown[];
 }
 
-export interface FoundationCourse {
+export interface ChecklistItem {
   course_num: string;
   title: string;
-  units: number;
+  units: number | null;
+}
+
+export interface ChecklistGroup {
+  header: string;
+  courses: ChecklistItem[];
 }
 
 export interface SurveyResponse {
   major: string;
-  foundation_courses: FoundationCourse[];
+  checklist: ChecklistGroup[];
 }
 
 export interface Section {

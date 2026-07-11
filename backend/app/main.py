@@ -22,13 +22,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from app.checklist import ChecklistGroup, checklist_courses
 from app.data_loader import load_courses
 from app.models import (
     Course,
-    PrereqAnd,
-    PrereqCourse,
-    PrereqNode,
-    PrereqOr,
     Schedule,
     Section,
     StudentProfile,
@@ -77,42 +74,13 @@ REQUIREMENTS = load_requirements()
 # course_num -> units, from the catalog, used when evaluating unit-based rules.
 UNITS_BY_NUM: dict[str, float] = {c.course_num: c.units for c in CATALOG}
 
-# Curated per-major department prefixes (project context §7: requirement rules are
-# curated per major to start). Unknown majors fall back to no prefix filter.
-_MAJOR_PREFIXES: dict[str, tuple[str, ...]] = {
-    "computer science": ("15", "21"),
-    "mathematics": ("21",),
-    "statistics and machine learning": ("21", "36"),
-}
-
-
-def _collect_referenced(node: Optional[PrereqNode], out: set[str]) -> None:
-    if isinstance(node, PrereqCourse):
-        out.add(node.course_num)
-    elif isinstance(node, (PrereqAnd, PrereqOr)):
-        for operand in node.operands:
-            _collect_referenced(operand, out)
-    # None / PrereqUnparsed reference no concrete course.
-
-
-# Courses that are prerequisites of some other course — the building blocks.
-_REFERENCED_PREREQS: set[str] = set()
-for _course in CATALOG:
-    _collect_referenced(_course.prereqs, _REFERENCED_PREREQS)
-
-
 # --- Request / response schemas ----------------------------------------------
-
-
-class FoundationCourse(BaseModel):
-    course_num: str
-    title: str
-    units: float
 
 
 class SurveyResponse(BaseModel):
     major: str
-    foundation_courses: list[FoundationCourse]
+    # Focused, grouped prereq tick-off checklist (core courses + common prereqs).
+    checklist: list[ChecklistGroup]
 
 
 class ScheduleOut(BaseModel):
@@ -169,25 +137,6 @@ class AskResponse(BaseModel):
 
 
 # --- Helpers -----------------------------------------------------------------
-
-
-def _foundation_courses(major: str) -> list[Course]:
-    """Derive a major's foundation checklist from the loaded catalog.
-
-    A foundation course is a lower-division building block: it either has **no
-    prerequisites** (a gateway) or is itself **a prerequisite of another course**.
-    Filtered to the major's department prefixes when known.
-    """
-    prefixes = _MAJOR_PREFIXES.get(major.strip().lower())
-    prefix_match = tuple(f"{p}-" for p in prefixes) if prefixes else None
-
-    result = [
-        c
-        for c in CATALOG
-        if (prefix_match is None or c.course_num.startswith(prefix_match))
-        and (c.prereqs is None or c.course_num in _REFERENCED_PREREQS)
-    ]
-    return sorted(result, key=lambda c: c.course_num)
 
 
 def _question_text(course: Course, missing: list[str]) -> str:
@@ -357,14 +306,10 @@ def health() -> dict[str, str]:
 
 @app.post("/survey", response_model=SurveyResponse)
 def survey(profile: StudentProfile) -> SurveyResponse:
-    """Return the major's foundation courses for the student to tick off."""
-    foundation = _foundation_courses(profile.major)
+    """Return the grouped prereq tick-off checklist for the student's major."""
     return SurveyResponse(
         major=profile.major,
-        foundation_courses=[
-            FoundationCourse(course_num=c.course_num, title=c.title, units=c.units)
-            for c in foundation
-        ],
+        checklist=checklist_courses(profile.major, CATALOG, REQUIREMENTS),
     )
 
 

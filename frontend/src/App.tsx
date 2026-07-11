@@ -3,11 +3,11 @@ import { ask, getSurvey } from "./api";
 import { ChatBox } from "./components/ChatBox";
 import { PrereqChecklist } from "./components/PrereqChecklist";
 import { SurveyForm } from "./components/SurveyForm";
-import type { AskResponse, FoundationCourse, StudentProfile } from "./types";
+import type { AskResponse, ChecklistGroup, StudentProfile } from "./types";
 
 export default function App() {
   const [profile, setProfile] = useState<StudentProfile | null>(null);
-  const [foundation, setFoundation] = useState<FoundationCourse[]>([]);
+  const [checklist, setChecklist] = useState<ChecklistGroup[]>([]);
   const [completed, setCompleted] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +18,7 @@ export default function App() {
     try {
       const survey = await getSurvey(p);
       setProfile(p);
-      setFoundation(survey.foundation_courses);
+      setChecklist(survey.checklist);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not reach the backend.");
     } finally {
@@ -58,7 +58,7 @@ export default function App() {
         <div className="columns">
           <div className="col-left">
             <PrereqChecklist
-              courses={foundation}
+              groups={checklist}
               completed={completed}
               onToggle={toggle}
             />

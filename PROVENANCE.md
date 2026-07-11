@@ -71,6 +71,10 @@ what was human-written vs. agent-generated, and what review each piece received.
 | Requirement-bias wiring + response fields (`backend/app/main.py`) — `/recommend` & `/ask` bias ranking, surface `disclaimer` + per-schedule `requirements_advanced` | agent-generated | Octavius | reviewed |
 | Requirement API tests (`backend/tests/test_api.py`) — disclaimer surfaced, advanced groups present, completed-course regression | agent-generated | Octavius | reviewed |
 | Frontend requirement/disclaimer surfacing (`frontend/src`) — advanced-group chips + disclaimer banner | agent-generated | Octavius | skim |
+| Checklist source (`backend/app/checklist.py`) — single `checklist_courses(major, catalog, requirements)`; scope = all-rule core + prereq-graph courses, grouped | agent-generated | \<YOUR NAME\> | reviewed |
+| Checklist tests (`backend/tests/test_checklist.py`) — core appear, prereq appears, non-core/non-prereq excluded, dedup, focused size | agent-generated | \<YOUR NAME\> | reviewed |
+| Survey checklist rework (`backend/app/main.py` `/survey` + `SurveyResponse`; replaces foundation) + test (`backend/tests/test_api.py`) — grouped checklist; ticking still feeds classifier/cascade and excludes completed | agent-generated | \<YOUR NAME\> | reviewed |
+| Frontend grouped checklist (`frontend/src`) — headered sections, wider upfront confirmation | agent-generated | \<YOUR NAME\> | skim |
 
 <!--
 Each build stage appends its rows below this line. Keep entries in stage order.

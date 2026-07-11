@@ -27,21 +27,31 @@ def _cs_profile(**overrides) -> dict:
 # --- /survey -----------------------------------------------------------------
 
 
-def test_survey_returns_foundation_courses():
+def test_survey_returns_grouped_checklist():
     resp = client.post("/survey", json=_cs_profile())
     assert resp.status_code == 200
     body = resp.json()
     assert body["major"] == "Computer Science"
 
-    nums = {c["course_num"] for c in body["foundation_courses"]}
-    # Gateways (no prereqs) and building blocks (prereqs of others) in 15-/21-.
-    assert "15-112" in nums  # gateway, no prereqs
-    assert "15-122" in nums  # prereq of 15-150 / 15-213
-    assert "21-127" in nums  # prereq of 15-150
-    # 76-101 is outside the CS department prefixes -> excluded.
+    groups = body["checklist"]
+    assert isinstance(groups, list) and groups
+    headers = {g["header"] for g in groups}
+    assert "Common prerequisites" in headers  # prereq section present
+
+    nums = {c["course_num"] for g in groups for c in g["courses"]}
+    # (a) core courses (from all-rule groups) appear...
+    assert "15-122" in nums  # cs_core
+    assert "15-213" in nums  # cs_core (now included; was excluded by old foundation)
+    assert "21-120" in nums  # math_core
+    # (b) a known prerequisite appears...
+    assert "15-112" in nums  # prereq of 15-122
+    # ...but a course that is neither core nor a prerequisite does not.
     assert "76-101" not in nums
-    # Upper-division courses that nothing depends on are not "foundation".
-    assert "15-213" not in nums
+    # Each course appears exactly once across all groups.
+    all_nums = [c["course_num"] for g in groups for c in g["courses"]]
+    assert len(all_nums) == len(set(all_nums))
+    # Focused list, not the whole catalog/requirements dump.
+    assert len(all_nums) <= 20
 
 
 # --- /recommend --------------------------------------------------------------
