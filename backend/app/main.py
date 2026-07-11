@@ -28,11 +28,19 @@ from app.models import (
     PrereqCourse,
     PrereqNode,
     PrereqOr,
+    Schedule,
     Section,
     StudentProfile,
 )
+from app.orchestrator import (
+    ConfirmationQuestion,
+    ScheduleContext,
+    build_confirmation_questions,
+    orchestrate,
+)
 from app.prereq import Classification, classify, missing_prereqs
 from app.solver import solve
+from app.verifier import Claim
 
 app = FastAPI(title="cmu-scheduler")
 
@@ -93,13 +101,6 @@ class ScheduleOut(BaseModel):
     classifications: dict[str, Classification]
 
 
-class ConfirmationQuestion(BaseModel):
-    course_num: str
-    title: str
-    missing_prereqs: list[str]
-    question: str
-
-
 class RecommendResponse(BaseModel):
     schedules: list[ScheduleOut]
     confirmation_questions: list[ConfirmationQuestion]
@@ -109,6 +110,33 @@ class ConfirmRequest(BaseModel):
     profile: StudentProfile
     # course number -> whether the student has taken it.
     answers: dict[str, bool] = Field(default_factory=dict)
+
+
+class AskRequest(BaseModel):
+    profile: StudentProfile
+    question: str
+
+
+class AskResult(BaseModel):
+    sections: list[Section]
+    total_units: float
+    total_workload_hours: float
+    score: float
+    classifications: dict[str, Classification]
+    fit_rank: Optional[int] = None
+    # LLM prose (semantic route only); None on the structured route.
+    explanation: Optional[str] = None
+    # Only claims that PASSED verification are ever included here.
+    verified_claims: list[Claim] = Field(default_factory=list)
+    stripped_claim_count: int = 0
+    confirmation_questions: list[ConfirmationQuestion] = Field(default_factory=list)
+
+
+class AskResponse(BaseModel):
+    question: str
+    route: str  # "structured" | "semantic"
+    llm_backend: str  # "none" (structured) | "stub" | "anthropic"
+    results: list[AskResult]
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -145,12 +173,12 @@ def _question_text(course: Course, missing: list[str]) -> str:
     )
 
 
-def _run_recommendation(
+def _solve_for(
     profile: StudentProfile,
     completed: Iterable[str],
     ruled_out: Iterable[str],
-) -> RecommendResponse:
-    """Classify every catalog course, solve, rank, and attach confirmation questions."""
+) -> tuple[list[Schedule], dict[str, Classification], set[str], set[str]]:
+    """Classify the catalog and solve — the shared front half of every request path."""
     completed_set = set(completed)
     ruled_out_set = set(ruled_out)
 
@@ -166,6 +194,63 @@ def _run_recommendation(
         commitments=profile.commitments,
         classifications=classifications,
         k=DEFAULT_K,
+    )
+    return schedules, classifications, completed_set, ruled_out_set
+
+
+def _build_contexts(
+    schedules: list[Schedule],
+    classifications: dict[str, Classification],
+    completed: set[str],
+    ruled_out: set[str],
+) -> list[ScheduleContext]:
+    """Package each schedule's facts for the orchestrator — the LLM invents nothing."""
+    contexts: list[ScheduleContext] = []
+    for sched in schedules:
+        per_course = {s.course_num: classifications[s.course_num] for s in sched.sections}
+        targets = {
+            s.course_num: missing_prereqs(
+                CATALOG_BY_NUM[s.course_num], completed, ruled_out=ruled_out
+            )
+            for s in sched.sections
+            if classifications[s.course_num] == "unconfirmed"
+        }
+        contexts.append(
+            ScheduleContext(
+                schedule=sched, classifications=per_course, confirmation_targets=targets
+            )
+        )
+    return contexts
+
+
+# Keyword router: structured questions (facts) go to the deterministic pipeline;
+# fuzzy questions (fit, preferences) go to the LLM. Prevents using the LLM where
+# the database is authoritative (project context §5).
+_STRUCTURED_KEYWORDS = (
+    "conflict", "unit", "prereq", "prerequisite", "requirement", "days off",
+    "day off", "free day", "how many", "what time", "when does", "which days",
+)
+_SEMANTIC_KEYWORDS = (
+    "best", "recommend", "interest", "enjoy", "like", "fun", "fit", "should i",
+    "prefer", "easier", "lighter", "harder", "manageable", "worth",
+)
+
+
+def _route_question(question: str) -> str:
+    q = question.lower()
+    structured = sum(1 for kw in _STRUCTURED_KEYWORDS if kw in q)
+    semantic = sum(1 for kw in _SEMANTIC_KEYWORDS if kw in q)
+    return "structured" if structured > semantic else "semantic"
+
+
+def _run_recommendation(
+    profile: StudentProfile,
+    completed: Iterable[str],
+    ruled_out: Iterable[str],
+) -> RecommendResponse:
+    """Classify every catalog course, solve, rank, and attach confirmation questions."""
+    schedules, classifications, completed_set, ruled_out_set = _solve_for(
+        profile, completed, ruled_out
     )
 
     schedule_outs: list[ScheduleOut] = []
@@ -238,3 +323,61 @@ def confirm(request: ConfirmRequest) -> RecommendResponse:
     for course_num, taken in request.answers.items():
         (completed if taken else ruled_out).add(course_num)
     return _run_recommendation(request.profile, completed, ruled_out)
+
+
+@app.post("/ask", response_model=AskResponse)
+def ask(request: AskRequest) -> AskResponse:
+    """Answer a question about the top schedules, routing structured vs semantic.
+
+    Structured questions (units, conflicts, prereqs) are answered from the solver's
+    output with no prose. Fuzzy questions (fit, interests) go to the LLM
+    orchestrator, whose every factual claim passes the verifier before returning —
+    so no unverified claim about a schedule ever reaches the student.
+    """
+    profile = request.profile
+    schedules, classifications, completed, ruled_out = _solve_for(
+        profile, profile.completed_courses, ruled_out=set()
+    )
+    contexts = _build_contexts(schedules, classifications, completed, ruled_out)
+    route = _route_question(request.question)
+
+    if route == "structured":
+        results = [
+            AskResult(
+                sections=ctx.schedule.sections,
+                total_units=ctx.schedule.total_units,
+                total_workload_hours=ctx.schedule.total_workload_hours,
+                score=ctx.schedule.score,
+                classifications=ctx.classifications,
+                fit_rank=rank,
+                confirmation_questions=build_confirmation_questions(ctx),
+            )
+            for rank, ctx in enumerate(contexts, start=1)
+        ]
+        return AskResponse(
+            question=request.question, route=route, llm_backend="none", results=results
+        )
+
+    orch = orchestrate(contexts, profile, question=request.question)
+    results = []
+    for exp in orch.explanations:
+        results.append(
+            AskResult(
+                sections=exp.schedule.sections,
+                total_units=exp.schedule.total_units,
+                total_workload_hours=exp.schedule.total_workload_hours,
+                score=exp.schedule.score,
+                classifications=exp.classifications,
+                fit_rank=exp.fit_rank,
+                explanation=exp.explanation,
+                verified_claims=exp.verified_claims,
+                stripped_claim_count=len(exp.stripped_claims),
+                confirmation_questions=exp.confirmation_questions,
+            )
+        )
+    return AskResponse(
+        question=request.question,
+        route=route,
+        llm_backend=orch.backend,
+        results=results,
+    )

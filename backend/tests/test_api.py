@@ -131,3 +131,53 @@ def test_confirm_no_answer_ruled_out_does_not_crash_and_excludes_blocked():
     after = resp.json()
     # 15-122 requires 15-112 (now ruled out) -> blocked -> excluded everywhere.
     assert _schedule_state_for(after, "15-122") is None
+
+
+# --- /ask : LLM orchestrator (stub, no key) ----------------------------------
+
+
+def test_ask_semantic_uses_stub_and_all_claims_verify(monkeypatch):
+    # No API key -> deterministic stub backend; every returned claim must verify.
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    resp = client.post(
+        "/ask",
+        json={
+            "profile": _cs_profile(interests=["machine learning"]),
+            "question": "Which of these schedules best fits my interests?",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["route"] == "semantic"
+    assert body["llm_backend"] == "stub"
+    assert body["results"]
+
+    for result in body["results"]:
+        assert result["explanation"]  # prose present on the semantic route
+        assert result["stripped_claim_count"] == 0  # stub is truthful
+        # Every returned claim is a real, schema-valid claim about the schedule.
+        for claim in result["verified_claims"]:
+            assert claim["type"] in {
+                "no_class_on", "total_units", "includes_course", "no_conflicts"
+            }
+        units_claims = [c for c in result["verified_claims"] if c["type"] == "total_units"]
+        assert units_claims and units_claims[0]["value"] == result["total_units"]
+
+
+def test_ask_structured_route_returns_facts_without_prose(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    resp = client.post(
+        "/ask",
+        json={
+            "profile": _cs_profile(),
+            "question": "How many units is each schedule and are there any conflicts?",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["route"] == "structured"
+    assert body["llm_backend"] == "none"
+    for result in body["results"]:
+        assert result["explanation"] is None  # no LLM prose on the structured route
+        assert result["verified_claims"] == []
+        assert result["total_units"] <= DEFAULT_UNITS_CAP

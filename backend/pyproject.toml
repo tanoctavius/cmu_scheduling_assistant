@@ -13,6 +13,11 @@ dependencies = [
     "beautifulsoup4",
 ]
 
+[project.optional-dependencies]
+# The LLM orchestrator's real backend. Optional so the app + full test suite run
+# without it (the deterministic stub fallback needs no key and no SDK).
+llm = ["anthropic"]
+
 [dependency-groups]
 dev = [
     "pytest",
