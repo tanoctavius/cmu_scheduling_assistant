@@ -50,6 +50,8 @@ what was human-written vs. agent-generated, and what review each piece received.
 | Ingestion README (`scripts/ingest/README.md`) — sources, self-owned rationale, manual-FCE caveat, refresh | agent-generated | Octavius | skim |
 | Ingestion fixture test (`backend/tests/test_ingest.py`) — dry-run → valid models, round-trips JSON | agent-generated | Octavius | reviewed |
 | Deps + test path for ingestion (`backend/pyproject.toml`: +httpx, +beautifulsoup4, pytest `pythonpath`) | agent-generated | Octavius | skim |
+| API endpoints (`backend/app/main.py`) — `/survey`, `/recommend`, `/confirm`; wires classify→solve→rank, cascade loop, no LLM | agent-generated | \<YOUR NAME\> | reviewed |
+| API integration tests (`backend/tests/test_api.py`) — shapes + cascade (confirming a prereq unlocks a course) | agent-generated | \<YOUR NAME\> | reviewed |
 
 <!--
 Each build stage appends its rows below this line. Keep entries in stage order.
