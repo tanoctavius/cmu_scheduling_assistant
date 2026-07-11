@@ -57,11 +57,11 @@ what was human-written vs. agent-generated, and what review each piece received.
 | `/ask` endpoint + router (`backend/app/main.py`) — structured/semantic routing, verified LLM results | agent-generated | Octavius | reviewed |
 | `/ask` tests (`backend/tests/test_api.py`) — stub route returns only verified claims | agent-generated | Octavius | reviewed |
 | `anthropic` optional dep (`backend/pyproject.toml`: `[llm]` extra) | agent-generated | Octavius | skim |
-| Frontend app (`frontend/`) — Vite + React + TS: survey, prereq checklist, chat (`/ask`), week-grid | agent-generated | \<YOUR NAME\> | reviewed |
-| CORS + lint config (`backend/app/main.py` CORS middleware, `backend/pyproject.toml` ruff) | agent-generated | \<YOUR NAME\> | skim |
-| README + run instructions (`README.md`) — architecture summary, clone→devcontainer→run→test | agent-generated | \<YOUR NAME\> | reviewed |
-| Makefile (`Makefile`) — dev / test / lint / ingest targets | agent-generated | \<YOUR NAME\> | skim |
-| CI workflow (`.github/workflows/backend-tests.yml`) — `uv run pytest` on push, no secrets | agent-generated | \<YOUR NAME\> | reviewed |
+| Frontend app (`frontend/`) — Vite + React + TS: survey, prereq checklist, chat (`/ask`), week-grid | agent-generated | Octavius | reviewed |
+| CORS + lint config (`backend/app/main.py` CORS middleware, `backend/pyproject.toml` ruff) | agent-generated | Octavius | skim |
+| README + run instructions (`README.md`) — architecture summary, clone→devcontainer→run→test | agent-generated | Octavius | reviewed |
+| Makefile (`Makefile`) — dev / test / lint / ingest targets | agent-generated | Octavius | skim |
+| CI workflow (`.github/workflows/backend-tests.yml`) — `uv run pytest` on push, no secrets | agent-generated | Octavius | reviewed |
 
 <!--
 Each build stage appends its rows below this line. Keep entries in stage order.
