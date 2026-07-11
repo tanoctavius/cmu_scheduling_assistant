@@ -119,6 +119,35 @@ def test_confirm_cascade_unlocks_dependent():
     assert "15-122" not in q_courses_after
 
 
+def test_completed_course_excluded_but_still_satisfies_prereqs():
+    # Two roles of completed_courses: (2) a completed course must never be
+    # recommended back, and (1) it must still satisfy prereqs for other courses.
+    # 15-112 is completed; the interest keyword pins its dependent 15-122 in.
+    profile = _cs_profile(
+        completed_courses=["15-112"], interests=["Imperative Computation"]
+    )
+    body = client.post("/recommend", json=profile).json()
+
+    # Role 2: 15-112 never appears in any returned schedule.
+    for sched in body["schedules"]:
+        assert "15-112" not in {s["course_num"] for s in sched["sections"]}
+        assert "15-112" not in sched["classifications"]
+
+    # Role 1: 15-112 still satisfies 15-122's prereq, so 15-122 is now eligible.
+    assert _schedule_state_for(body, "15-122") == "eligible"
+
+
+def test_completed_course_excluded_from_ask_schedules(monkeypatch):
+    # The same exclusion holds on the /ask path (shared _solve_for).
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    profile = _cs_profile(completed_courses=["15-112"], interests=["machine learning"])
+    body = client.post(
+        "/ask", json={"profile": profile, "question": "What's the best fit for me?"}
+    ).json()
+    for result in body["results"]:
+        assert "15-112" not in {s["course_num"] for s in result["sections"]}
+
+
 def test_confirm_no_answer_ruled_out_does_not_crash_and_excludes_blocked():
     # Answering "no" to a prereq rules it out; a course whose only prereq is ruled
     # out becomes blocked and must not appear in any schedule.

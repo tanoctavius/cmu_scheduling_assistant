@@ -197,8 +197,14 @@ def _solve_for(
         for c in CATALOG
     }
 
+    # Completed courses play two roles: they satisfy prerequisites (via `classify`
+    # above, which reads `completed_set`) AND must be excluded from the schedulable
+    # pool — you don't recommend a course the student has already taken. Filter them
+    # out of the candidate list before solving; prereq satisfaction is unaffected.
+    candidates = [c for c in CATALOG if c.course_num not in completed_set]
+
     schedules = solve(
-        CATALOG,
+        candidates,
         profile,
         units_cap=DEFAULT_UNITS_CAP,
         commitments=profile.commitments,

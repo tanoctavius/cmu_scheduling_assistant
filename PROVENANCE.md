@@ -62,6 +62,7 @@ what was human-written vs. agent-generated, and what review each piece received.
 | README + run instructions (`README.md`) — architecture summary, clone→devcontainer→run→test | agent-generated | Octavius | reviewed |
 | Makefile (`Makefile`) — dev / test / lint / ingest targets | agent-generated | Octavius | skim |
 | CI workflow (`.github/workflows/backend-tests.yml`) — `uv run pytest` on push, no secrets | agent-generated | Octavius | reviewed |
+| Bugfix: exclude completed courses from the candidate pool (`backend/app/main.py` `_solve_for`) + tests (`backend/tests/test_api.py`) — completed courses satisfy prereqs but are never re-recommended | agent-generated | \<YOUR NAME\> | reviewed |
 
 <!--
 Each build stage appends its rows below this line. Keep entries in stage order.
