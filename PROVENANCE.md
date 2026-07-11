@@ -63,6 +63,14 @@ what was human-written vs. agent-generated, and what review each piece received.
 | Makefile (`Makefile`) — dev / test / lint / ingest targets | agent-generated | Octavius | skim |
 | CI workflow (`.github/workflows/backend-tests.yml`) — `uv run pytest` on push, no secrets | agent-generated | Octavius | reviewed |
 | Bugfix: exclude completed courses from the candidate pool (`backend/app/main.py` `_solve_for`) + tests (`backend/tests/test_api.py`) — completed courses satisfy prereqs but are never re-recommended | agent-generated | Octavius | reviewed |
+| Curated CS degree requirements (`data/samples/computer-science.json`) — hand-curated, carries a not-an-audit disclaimer | human-written | \<YOUR NAME\> | reviewed |
+| Requirements models + `remaining_requirements` (`backend/app/requirements.py`) — **correctness-relevant** (a wrong "satisfied" misleads graduation planning); evaluates all/pick_n/pick_min_units/pick_n_min_units_each/units, sequence_alternatives, exclusions | agent-generated | \<YOUR NAME\> | strict |
+| Requirements loader (`backend/app/requirements_loader.py`) — **correctness-relevant**; loads + validates per-rule fields | agent-generated | \<YOUR NAME\> | strict |
+| Requirements tests (`backend/tests/test_requirements.py`) — 100% branch cov; every rule type, partial pick_min_units, sequence case, ranking signal | agent-generated | \<YOUR NAME\> | strict |
+| Solver `value_bonus` param (`backend/app/solver.py`) — additive optional ranking signal; default preserves prior tested behavior | agent-generated | \<YOUR NAME\> | reviewed |
+| Requirement-bias wiring + response fields (`backend/app/main.py`) — `/recommend` & `/ask` bias ranking, surface `disclaimer` + per-schedule `requirements_advanced` | agent-generated | \<YOUR NAME\> | reviewed |
+| Requirement API tests (`backend/tests/test_api.py`) — disclaimer surfaced, advanced groups present, completed-course regression | agent-generated | \<YOUR NAME\> | reviewed |
+| Frontend requirement/disclaimer surfacing (`frontend/src`) — advanced-group chips + disclaimer banner | agent-generated | \<YOUR NAME\> | skim |
 
 <!--
 Each build stage appends its rows below this line. Keep entries in stage order.

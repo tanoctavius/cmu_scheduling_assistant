@@ -1,0 +1,135 @@
+{
+  "major": "Computer Science (BS)",
+  "catalog_year": "2025-2026",
+  "entering": "Fall 2025",
+  "source_url": "http://coursecatalog.web.cmu.edu/schools-colleges/schoolofcomputerscience/undergraduatecomputerscience/",
+  "curated_by_hand": true,
+  "disclaimer": "Curated from the published CMU CS BS curriculum. NOT an authoritative degree audit. Some rules (unit-based GenEd buckets, double-counting, minor/concentration) are simplified. Verify against Stellic and your academic advisor.",
+  "total_units_required": 360,
+  "requirement_groups": [
+    {
+      "id": "cs_core",
+      "name": "Computer Science Core",
+      "rule": "all",
+      "courses": ["07-128", "15-122", "15-150", "15-210", "15-213", "15-251", "15-451"],
+      "notes": "All required. 15-122 requires 15-112 or a waiver."
+    },
+    {
+      "id": "cs_ai_elective",
+      "name": "Artificial Intelligence Elective",
+      "rule": "pick_min_units",
+      "min_units": 9,
+      "courses": ["07-280", "10-301", "11-411", "11-485", "15-281", "15-382", "15-386", "16-384", "16-385"],
+      "notes": "One AI elective, min 9 units. 15-382 is Qatar-only."
+    },
+    {
+      "id": "cs_domains_elective",
+      "name": "Domains Elective",
+      "rule": "pick_min_units",
+      "min_units": 9,
+      "courses": ["02-251", "05-391", "11-324", "15-322", "15-330", "15-362", "15-455", "17-313"],
+      "notes": "One Domains elective, min 9 units. 02-251 may be satisfied by 02-180 & 02-181."
+    },
+    {
+      "id": "cs_logics_languages_elective",
+      "name": "Logics/Languages Elective",
+      "rule": "pick_min_units",
+      "min_units": 9,
+      "courses": ["15-311", "15-312", "15-316", "15-317", "15-414", "17-355", "17-363", "80-413"],
+      "notes": "One Logics/Languages elective, min 9 units."
+    },
+    {
+      "id": "cs_software_systems_elective",
+      "name": "Software Systems Elective",
+      "rule": "pick_min_units",
+      "min_units": 12,
+      "courses": ["15-410", "15-411", "15-418", "15-440", "15-441", "15-445"],
+      "notes": "One Software Systems elective, min 12 units."
+    },
+    {
+      "id": "cs_scs_electives",
+      "name": "School of Computer Science Electives",
+      "rule": "pick_n_min_units_each",
+      "n": 2,
+      "min_units_each": 9,
+      "courses": [],
+      "constraint": "Any SCS department (02/05/10/11/15/16/17), 200-level or above, 9+ units each. See exclusion list.",
+      "excluded_courses": ["02-201", "02-223", "02-250", "02-261", "05-200", "11-423", "15-351", "16-211", "16-223", "16-224", "16-397", "16-480", "17-200", "17-333", "17-416", "17-562"],
+      "notes": "Two SCS electives. Open-ended pool, so expressed as a constraint rather than an enumerated list; excluded courses listed explicitly."
+    },
+    {
+      "id": "math_core",
+      "name": "Mathematics Core",
+      "rule": "all",
+      "courses": ["15-151", "21-120", "21-122"],
+      "notes": "15-151 may be substituted by 21-127 or 21-128 if not offered."
+    },
+    {
+      "id": "math_linear_algebra",
+      "name": "Matrix Algebra choice",
+      "rule": "pick_n",
+      "n": 1,
+      "courses": ["21-241", "21-242"],
+      "notes": "One matrix/linear algebra course."
+    },
+    {
+      "id": "math_multivariable",
+      "name": "Multivariable Calculus choice",
+      "rule": "pick_n",
+      "n": 1,
+      "courses": ["21-259", "21-266", "21-268", "21-269"],
+      "notes": "One multivariable calculus course."
+    },
+    {
+      "id": "math_probability",
+      "name": "Probability choice",
+      "rule": "pick_n",
+      "n": 1,
+      "courses": ["15-259", "21-325", "36-218"],
+      "sequence_alternatives": [["36-225", "36-226"]],
+      "notes": "One probability course; OR the 36-225 & 36-226 two-course sequence."
+    },
+    {
+      "id": "technical_communication",
+      "name": "Technical Communication",
+      "rule": "pick_n",
+      "n": 1,
+      "courses": ["07-300", "17-200", "76-270"],
+      "notes": "One technical communication course."
+    },
+    {
+      "id": "computing_at_cmu",
+      "name": "Computing @ Carnegie Mellon",
+      "rule": "all",
+      "courses": ["99-101"],
+      "notes": "Required orientation to campus computing."
+    },
+    {
+      "id": "science_engineering",
+      "name": "Science & Engineering",
+      "rule": "units",
+      "units_required": 36,
+      "courses": [],
+      "constraint": "36 units from Mellon College of Science and/or College of Engineering.",
+      "notes": "Unit-based breadth; not enumerated. Curate approved list from GenEd page if needed."
+    },
+    {
+      "id": "humanities_arts",
+      "name": "Humanities & Arts",
+      "rule": "units",
+      "units_required": 63,
+      "courses": [],
+      "constraint": "63 units from Dietrich (H&SS) and/or College of Fine Arts; some Tepper courses qualify.",
+      "notes": "Unit-based breadth; any approved H&A course. Not enumerated for v1."
+    },
+    {
+      "id": "minor_or_concentration",
+      "name": "Minor or Concentration / Free Electives",
+      "rule": "units",
+      "units_required": 63,
+      "courses": [],
+      "constraint": "A minor outside SCS, an SCS concentration, or an additional major/dual degree. Remainder as free electives.",
+      "notes": "Structural requirement; simplified to a unit target for v1."
+    }
+  ]
+}

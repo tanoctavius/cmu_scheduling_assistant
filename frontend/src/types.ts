@@ -47,6 +47,11 @@ export interface ConfirmationQuestion {
   question: string;
 }
 
+export interface GroupRef {
+  id: string;
+  name: string;
+}
+
 export interface AskResult {
   sections: Section[];
   total_units: number;
@@ -58,6 +63,7 @@ export interface AskResult {
   verified_claims: Claim[];
   stripped_claim_count: number;
   confirmation_questions: ConfirmationQuestion[];
+  requirements_advanced: GroupRef[];
 }
 
 export interface AskResponse {
@@ -65,4 +71,5 @@ export interface AskResponse {
   route: string; // "structured" | "semantic"
   llm_backend: string; // "none" | "stub" | "anthropic"
   results: AskResult[];
+  disclaimer: string;
 }

@@ -137,6 +137,32 @@ def test_completed_course_excluded_but_still_satisfies_prereqs():
     assert _schedule_state_for(body, "15-122") == "eligible"
 
 
+def test_recommend_surfaces_requirements_and_disclaimer():
+    resp = client.post("/recommend", json=_cs_profile())
+    assert resp.status_code == 200
+    body = resp.json()
+    # Disclaimer is surfaced so the UI can mark this as not an official audit.
+    assert body["disclaimer"]
+    assert "audit" in body["disclaimer"].lower()
+    # Each schedule reports which requirement groups its courses advance.
+    for sched in body["schedules"]:
+        assert isinstance(sched["requirements_advanced"], list)
+        for grp in sched["requirements_advanced"]:
+            assert grp["id"] and grp["name"]
+
+
+def test_completed_requirement_course_never_recommended():
+    # Regression (earlier bug): a completed course must never appear in a schedule,
+    # even though it still counts toward requirements. 15-122 is a cs_core course.
+    profile = _cs_profile(completed_courses=["15-122"])
+    body = client.post("/recommend", json=profile).json()
+    for sched in body["schedules"]:
+        assert "15-122" not in {s["course_num"] for s in sched["sections"]}
+    # cs_core should no longer be advanced *by 15-122* (it's already done), but the
+    # response is still well-formed with the disclaimer present.
+    assert body["disclaimer"]
+
+
 def test_completed_course_excluded_from_ask_schedules(monkeypatch):
     # The same exclusion holds on the /ask path (shared _solve_for).
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)

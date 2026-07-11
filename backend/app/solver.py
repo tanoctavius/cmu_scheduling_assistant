@@ -79,6 +79,7 @@ def solve(
     units_cap: float,
     commitments: Optional[Iterable[TimeBlock]] = None,
     classifications: Optional[Mapping[str, Classification]] = None,
+    value_bonus: Optional[Mapping[str, float]] = None,
     k: int = DEFAULT_K,
 ) -> list[Schedule]:
     """Return up to ``k`` valid schedules, best-ranked first.
@@ -92,6 +93,10 @@ def solve(
         classifications: Map of course number -> classification. Courses
             classified ``blocked`` are excluded; anything else is schedulable.
             If omitted, all provided courses are treated as schedulable.
+        value_bonus: Optional ``course_num -> bonus`` added to each course's
+            ranking value (a caller-supplied signal, e.g. degree-requirement
+            fit). Omit for the pure FCE/interest ranking — the default preserves
+            the exact prior behavior.
         k: Number of top schedules to return (default 5).
 
     Returns:
@@ -100,6 +105,10 @@ def solve(
     """
     if k < 1:
         return []
+
+    def _value(course: Course) -> float:
+        base = course_value(course, profile)
+        return base + (value_bonus.get(course.course_num, 0.0) if value_bonus else 0.0)
 
     busy_base = _commitment_intervals(
         commitments if commitments is not None else profile.commitments
@@ -115,7 +124,7 @@ def solve(
     # Order by descending value so the heap fills with strong schedules early,
     # which tightens the bound and prunes more.
     valued = sorted(
-        ((course_value(c, profile), c) for c in schedulable),
+        ((_value(c), c) for c in schedulable),
         key=lambda pair: pair[0],
         reverse=True,
     )

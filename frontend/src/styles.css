@@ -191,6 +191,21 @@ button:disabled {
   color: var(--ok);
 }
 
+.chip.requirement {
+  background: #eef2fb;
+  color: #35508a;
+}
+
+.disclaimer {
+  background: #fff6e6;
+  border: 1px solid #f0d9a8;
+  color: var(--warn);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  margin: 12px 0;
+}
+
 .confirm {
   margin-top: 10px;
 }

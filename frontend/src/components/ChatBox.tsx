@@ -34,6 +34,16 @@ function ResultCard({ result }: { result: AskResult }) {
 
       <WeekGrid sections={result.sections} />
 
+      {result.requirements_advanced.length > 0 && (
+        <div className="claims">
+          {result.requirements_advanced.map((g) => (
+            <span className="chip requirement" key={g.id} title="Advances a degree requirement">
+              ◆ Advances: {g.name}
+            </span>
+          ))}
+        </div>
+      )}
+
       {result.verified_claims.length > 0 && (
         <div className="claims">
           {result.verified_claims.map((c, i) => (
@@ -102,6 +112,11 @@ export function ChatBox({ onAsk }: Props) {
             Routed as <strong>{response.route}</strong> · answered by{" "}
             <strong>{response.llm_backend}</strong>
           </p>
+          {response.disclaimer && (
+            <p className="disclaimer" role="note">
+              ⚠ {response.disclaimer}
+            </p>
+          )}
           {response.results.length === 0 && (
             <p className="muted">No valid schedules found for that profile.</p>
           )}

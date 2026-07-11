@@ -40,6 +40,14 @@ from app.orchestrator import (
     orchestrate,
 )
 from app.prereq import Classification, classify, missing_prereqs
+from app.requirements import (
+    GroupRef,
+    RequirementsStatus,
+    groups_advanced_by_courses,
+    remaining_requirements,
+    requirement_bonus,
+)
+from app.requirements_loader import load_requirements
 from app.solver import solve
 from app.verifier import Claim
 
@@ -63,6 +71,11 @@ DEFAULT_K = 5
 # there is no live DB yet — the sample fixture is the source of truth for v1).
 CATALOG: list[Course] = load_courses()
 CATALOG_BY_NUM: dict[str, Course] = {c.course_num: c for c in CATALOG}
+
+# Curated degree requirements (v1: Computer Science). Loaded once at import.
+REQUIREMENTS = load_requirements()
+# course_num -> units, from the catalog, used when evaluating unit-based rules.
+UNITS_BY_NUM: dict[str, float] = {c.course_num: c.units for c in CATALOG}
 
 # Curated per-major department prefixes (project context §7: requirement rules are
 # curated per major to start). Unknown majors fall back to no prefix filter.
@@ -109,11 +122,15 @@ class ScheduleOut(BaseModel):
     score: float
     # Per-course state for the courses on this schedule (eligible | unconfirmed).
     classifications: dict[str, Classification]
+    # Unmet degree-requirement groups this schedule's courses advance.
+    requirements_advanced: list[GroupRef] = Field(default_factory=list)
 
 
 class RecommendResponse(BaseModel):
     schedules: list[ScheduleOut]
     confirmation_questions: list[ConfirmationQuestion]
+    # NOT an official audit — surfaced so the UI can say so clearly.
+    disclaimer: str
 
 
 class ConfirmRequest(BaseModel):
@@ -140,6 +157,7 @@ class AskResult(BaseModel):
     verified_claims: list[Claim] = Field(default_factory=list)
     stripped_claim_count: int = 0
     confirmation_questions: list[ConfirmationQuestion] = Field(default_factory=list)
+    requirements_advanced: list[GroupRef] = Field(default_factory=list)
 
 
 class AskResponse(BaseModel):
@@ -147,6 +165,7 @@ class AskResponse(BaseModel):
     route: str  # "structured" | "semantic"
     llm_backend: str  # "none" (structured) | "stub" | "anthropic"
     results: list[AskResult]
+    disclaimer: str
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -187,7 +206,9 @@ def _solve_for(
     profile: StudentProfile,
     completed: Iterable[str],
     ruled_out: Iterable[str],
-) -> tuple[list[Schedule], dict[str, Classification], set[str], set[str]]:
+) -> tuple[
+    list[Schedule], dict[str, Classification], set[str], set[str], RequirementsStatus
+]:
     """Classify the catalog and solve — the shared front half of every request path."""
     completed_set = set(completed)
     ruled_out_set = set(ruled_out)
@@ -203,15 +224,32 @@ def _solve_for(
     # out of the candidate list before solving; prereq satisfaction is unaffected.
     candidates = [c for c in CATALOG if c.course_num not in completed_set]
 
+    # Degree-requirement fit as a ranking signal, layered on the FCE/interest score
+    # inside the solver (not a hard filter — electives still compete).
+    profile_for_req = profile.model_copy(update={"completed_courses": completed_set})
+    req_status = remaining_requirements(profile_for_req, REQUIREMENTS, UNITS_BY_NUM)
+    value_bonus = {
+        c.course_num: requirement_bonus(c.course_num, c.units, REQUIREMENTS, req_status)
+        for c in candidates
+    }
+
     schedules = solve(
         candidates,
         profile,
         units_cap=DEFAULT_UNITS_CAP,
         commitments=profile.commitments,
         classifications=classifications,
+        value_bonus=value_bonus,
         k=DEFAULT_K,
     )
-    return schedules, classifications, completed_set, ruled_out_set
+    return schedules, classifications, completed_set, ruled_out_set, req_status
+
+
+def _advanced_groups(schedule: Schedule, status: RequirementsStatus) -> list[GroupRef]:
+    """Which unmet requirement groups this schedule's courses advance."""
+    return groups_advanced_by_courses(
+        schedule.course_nums, UNITS_BY_NUM, REQUIREMENTS, status
+    )
 
 
 def _build_contexts(
@@ -265,7 +303,7 @@ def _run_recommendation(
     ruled_out: Iterable[str],
 ) -> RecommendResponse:
     """Classify every catalog course, solve, rank, and attach confirmation questions."""
-    schedules, classifications, completed_set, ruled_out_set = _solve_for(
+    schedules, classifications, completed_set, ruled_out_set, req_status = _solve_for(
         profile, completed, ruled_out
     )
 
@@ -280,6 +318,7 @@ def _run_recommendation(
                 total_workload_hours=sched.total_workload_hours,
                 score=sched.score,
                 classifications=per_course,
+                requirements_advanced=_advanced_groups(sched, req_status),
             )
         )
         for section in sched.sections:
@@ -300,7 +339,11 @@ def _run_recommendation(
             )
         )
 
-    return RecommendResponse(schedules=schedule_outs, confirmation_questions=questions)
+    return RecommendResponse(
+        schedules=schedule_outs,
+        confirmation_questions=questions,
+        disclaimer=REQUIREMENTS.disclaimer,
+    )
 
 
 # --- Endpoints ---------------------------------------------------------------
@@ -351,7 +394,7 @@ def ask(request: AskRequest) -> AskResponse:
     so no unverified claim about a schedule ever reaches the student.
     """
     profile = request.profile
-    schedules, classifications, completed, ruled_out = _solve_for(
+    schedules, classifications, completed, ruled_out, req_status = _solve_for(
         profile, profile.completed_courses, ruled_out=set()
     )
     contexts = _build_contexts(schedules, classifications, completed, ruled_out)
@@ -367,11 +410,16 @@ def ask(request: AskRequest) -> AskResponse:
                 classifications=ctx.classifications,
                 fit_rank=rank,
                 confirmation_questions=build_confirmation_questions(ctx),
+                requirements_advanced=_advanced_groups(ctx.schedule, req_status),
             )
             for rank, ctx in enumerate(contexts, start=1)
         ]
         return AskResponse(
-            question=request.question, route=route, llm_backend="none", results=results
+            question=request.question,
+            route=route,
+            llm_backend="none",
+            results=results,
+            disclaimer=REQUIREMENTS.disclaimer,
         )
 
     orch = orchestrate(contexts, profile, question=request.question)
@@ -389,6 +437,7 @@ def ask(request: AskRequest) -> AskResponse:
                 verified_claims=exp.verified_claims,
                 stripped_claim_count=len(exp.stripped_claims),
                 confirmation_questions=exp.confirmation_questions,
+                requirements_advanced=_advanced_groups(exp.schedule, req_status),
             )
         )
     return AskResponse(
@@ -396,4 +445,5 @@ def ask(request: AskRequest) -> AskResponse:
         route=route,
         llm_backend=orch.backend,
         results=results,
+        disclaimer=REQUIREMENTS.disclaimer,
     )
