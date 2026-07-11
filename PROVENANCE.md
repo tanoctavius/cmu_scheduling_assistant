@@ -52,11 +52,16 @@ what was human-written vs. agent-generated, and what review each piece received.
 | Deps + test path for ingestion (`backend/pyproject.toml`: +httpx, +beautifulsoup4, pytest `pythonpath`) | agent-generated | Octavius | skim |
 | API endpoints (`backend/app/main.py`) — `/survey`, `/recommend`, `/confirm`; wires classify→solve→rank, cascade loop, no LLM | agent-generated | Octavius | reviewed |
 | API integration tests (`backend/tests/test_api.py`) — shapes + cascade (confirming a prereq unlocks a course) | agent-generated | Octavius | reviewed |
-| LLM orchestrator (`backend/app/orchestrator.py`) — **correctness-critical**; enforces the verifier safety gate, stub fallback | agent-generated | \<YOUR NAME\> | strict |
-| Orchestrator tests (`backend/tests/test_orchestrator.py`) — stub claims verify; wrong LLM claim caught & stripped | agent-generated | \<YOUR NAME\> | strict |
-| `/ask` endpoint + router (`backend/app/main.py`) — structured/semantic routing, verified LLM results | agent-generated | \<YOUR NAME\> | reviewed |
-| `/ask` tests (`backend/tests/test_api.py`) — stub route returns only verified claims | agent-generated | \<YOUR NAME\> | reviewed |
-| `anthropic` optional dep (`backend/pyproject.toml`: `[llm]` extra) | agent-generated | \<YOUR NAME\> | skim |
+| LLM orchestrator (`backend/app/orchestrator.py`) — **correctness-critical**; enforces the verifier safety gate, stub fallback | agent-generated | Octavius | strict |
+| Orchestrator tests (`backend/tests/test_orchestrator.py`) — stub claims verify; wrong LLM claim caught & stripped | agent-generated | Octavius | strict |
+| `/ask` endpoint + router (`backend/app/main.py`) — structured/semantic routing, verified LLM results | agent-generated | Octavius | reviewed |
+| `/ask` tests (`backend/tests/test_api.py`) — stub route returns only verified claims | agent-generated | Octavius | reviewed |
+| `anthropic` optional dep (`backend/pyproject.toml`: `[llm]` extra) | agent-generated | Octavius | skim |
+| Frontend app (`frontend/`) — Vite + React + TS: survey, prereq checklist, chat (`/ask`), week-grid | agent-generated | \<YOUR NAME\> | reviewed |
+| CORS + lint config (`backend/app/main.py` CORS middleware, `backend/pyproject.toml` ruff) | agent-generated | \<YOUR NAME\> | skim |
+| README + run instructions (`README.md`) — architecture summary, clone→devcontainer→run→test | agent-generated | \<YOUR NAME\> | reviewed |
+| Makefile (`Makefile`) — dev / test / lint / ingest targets | agent-generated | \<YOUR NAME\> | skim |
+| CI workflow (`.github/workflows/backend-tests.yml`) — `uv run pytest` on push, no secrets | agent-generated | \<YOUR NAME\> | reviewed |
 
 <!--
 Each build stage appends its rows below this line. Keep entries in stage order.

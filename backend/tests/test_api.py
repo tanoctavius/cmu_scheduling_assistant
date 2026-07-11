@@ -5,9 +5,8 @@ response shapes and the cascade: confirming a prerequisite flips a dependent
 course from unconfirmed to eligible and drops its confirmation question.
 """
 
-from fastapi.testclient import TestClient
-
 from app.main import DEFAULT_UNITS_CAP, app
+from fastapi.testclient import TestClient
 
 client = TestClient(app)
 

@@ -23,8 +23,6 @@ import re
 from datetime import time
 from typing import Optional
 
-from bs4 import BeautifulSoup
-
 from app.models import (
     PrereqAnd,
     PrereqCourse,
@@ -32,6 +30,7 @@ from app.models import (
     PrereqOr,
     PrereqUnparsed,
 )
+from bs4 import BeautifulSoup
 
 _COURSE_NUM = r"\d{2}-\d{3}"
 

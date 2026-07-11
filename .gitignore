@@ -30,6 +30,9 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# ---- Generated artifacts ----
+data/samples/*.generated.json
+
 # ---- Env / secrets ----
 .env
 .env.*

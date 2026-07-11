@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Iterable, Optional
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from app.data_loader import load_courses
@@ -43,6 +44,15 @@ from app.solver import solve
 from app.verifier import Claim
 
 app = FastAPI(title="cmu-scheduler")
+
+# Permissive CORS for local development so the Vite frontend (localhost:5173) can
+# call the API. Tighten allow_origins before any real deployment.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # --- Defaults & loaded catalog ----------------------------------------------
 
