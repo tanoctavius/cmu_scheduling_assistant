@@ -1,0 +1,55 @@
+<!--
+  Committed fixture: a trimmed, structurally-representative snapshot of the CMU
+  Schedule of Classes listing. Hand-authored for --dry-run so tests never hit the
+  network. Our parser targets THIS structure; when CMU changes its markup we
+  update the parser (and this fixture), not an external dependency.
+-->
+<html>
+<body>
+  <div id="soc">
+    <div class="course" data-course="15-112" data-units="12">
+      <h3 class="course-title">15-112 Fundamentals of Programming and Computer Science</h3>
+      <table class="sections">
+        <tr class="section">
+          <td class="sec">A</td><td class="days">MWF</td>
+          <td class="begin">10:00AM</td><td class="end">10:50AM</td><td class="loc">DH 2210</td>
+        </tr>
+        <tr class="section">
+          <td class="sec">B</td><td class="days">MWF</td>
+          <td class="begin">01:00PM</td><td class="end">01:50PM</td><td class="loc">DH 2210</td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="course" data-course="15-122" data-units="10">
+      <h3 class="course-title">15-122 Principles of Imperative Computation</h3>
+      <table class="sections">
+        <tr class="section">
+          <td class="sec">A</td><td class="days">TR</td>
+          <td class="begin">09:30AM</td><td class="end">10:50AM</td><td class="loc">GHC 4401</td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="course" data-course="15-150" data-units="10">
+      <h3 class="course-title">15-150 Principles of Functional Programming</h3>
+      <table class="sections">
+        <tr class="section">
+          <td class="sec">A</td><td class="days">TR</td>
+          <td class="begin">11:00AM</td><td class="end">12:20PM</td><td class="loc">DH 2315</td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="course" data-course="21-241" data-units="10">
+      <h3 class="course-title">21-241 Matrices and Linear Transformations</h3>
+      <table class="sections">
+        <tr class="section">
+          <td class="sec">A</td><td class="days">TR</td>
+          <td class="begin">01:30PM</td><td class="end">02:50PM</td><td class="loc">WEH 7500</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,30 @@
+<!--
+  Committed fixture: a trimmed snapshot of course-detail pages from the CMU
+  Course Catalog (coursecatalog.web.cmu.edu), the source of descriptions and
+  prerequisite text. Hand-authored for --dry-run. 21-241's prereq is deliberately
+  prose our boolean parser cannot model, to exercise the "unparseable ->
+  unconfirmed" safety path (it becomes a PrereqUnparsed node, never blocked).
+-->
+<html>
+<body>
+  <div class="course-detail" data-course="15-112">
+    <p class="desc">A technical introduction to the fundamentals of programming with an emphasis on producing clear, robust, and reasonably efficient code.</p>
+    <p class="prereqs">None</p>
+  </div>
+
+  <div class="course-detail" data-course="15-122">
+    <p class="desc">A transition from elementary programming to the fundamental techniques used in the design and implementation of computer software.</p>
+    <p class="prereqs">Prerequisites: 15-112</p>
+  </div>
+
+  <div class="course-detail" data-course="15-150">
+    <p class="desc">An introduction to programming based on a functional model of computation, emphasizing recursion, higher-order functions, and induction.</p>
+    <p class="prereqs">Prerequisites: 15-122 and (21-127 or 15-151)</p>
+  </div>
+
+  <div class="course-detail" data-course="21-241">
+    <p class="desc">A first course in linear algebra covering systems of linear equations, matrices, vector spaces, and eigenvalues.</p>
+    <p class="prereqs">Grade of C or better in 21-120 required</p>
+  </div>
+</body>
+</html>

@@ -44,6 +44,12 @@ what was human-written vs. agent-generated, and what review each piece received.
 | Solver/ranking tests (`backend/tests/test_solver.py`) — property-style, 100% branch cov; caught a real conflict bug | agent-generated | Octavius | strict |
 | Claim verifier (`backend/app/verifier.py`) — **correctness-critical**; the LLM-output safety gate + claim schema | agent-generated | Octavius | strict |
 | Verifier tests (`backend/tests/test_verifier.py`) — 100% branch cov; each claim type passes/fails with correction | agent-generated | Octavius | strict |
+| Ingestion parsers (`scripts/ingest/parsers.py`) — self-owned SOC/Catalog/FCE + prereq-text parser | agent-generated | \<YOUR NAME\> | reviewed |
+| Ingestion orchestrator + CLI (`scripts/ingest/ingest.py`, `scripts/ingest/cli.py`) — dry-run/live, JSON writer | agent-generated | \<YOUR NAME\> | reviewed |
+| Ingestion fixtures (`data/fixtures/soc_sample.html`, `catalog_sample.html`, `fce_sample.csv`) | agent-generated | \<YOUR NAME\> | skim |
+| Ingestion README (`scripts/ingest/README.md`) — sources, self-owned rationale, manual-FCE caveat, refresh | agent-generated | \<YOUR NAME\> | skim |
+| Ingestion fixture test (`backend/tests/test_ingest.py`) — dry-run → valid models, round-trips JSON | agent-generated | \<YOUR NAME\> | reviewed |
+| Deps + test path for ingestion (`backend/pyproject.toml`: +httpx, +beautifulsoup4, pytest `pythonpath`) | agent-generated | \<YOUR NAME\> | skim |
 
 <!--
 Each build stage appends its rows below this line. Keep entries in stage order.

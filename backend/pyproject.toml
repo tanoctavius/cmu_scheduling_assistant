@@ -8,13 +8,15 @@ dependencies = [
     "fastapi",
     "uvicorn",
     "pydantic",
+    # Ingestion (off the request path): live fetch + HTML parsing of CMU sources.
+    "httpx",
+    "beautifulsoup4",
 ]
 
 [dependency-groups]
 dev = [
     "pytest",
     "pytest-cov",
-    "httpx",
 ]
 
 [build-system]
@@ -26,3 +28,6 @@ packages = ["app"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Make the self-owned ingestion package (repo-root/scripts/ingest) importable as
+# `ingest` from the backend test suite. Resolved relative to this file's dir.
+pythonpath = ["../scripts"]
