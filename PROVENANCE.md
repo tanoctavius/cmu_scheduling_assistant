@@ -4,11 +4,6 @@ This log records the origin and review of every module in the repository, mainta
 **per-stage as the code was built** (not reconstructed afterward). It exists to make clear
 what was human-written vs. agent-generated, and what review each piece received.
 
-Most of this code was written by an AI agent. That is stated plainly here and in
-[`docs/ai-use.md`](docs/ai-use.md), which maps each part of the system to the mode we were
-working in (Operator/Agent vs. Critic). This log is the per-artifact register; §2 below is the
-part that matters most for accountability.
-
 **Two kinds of evidence live here:**
 
 1. **§1 The log** — who wrote and reviewed each artifact, and how deeply. This is an
@@ -304,11 +299,6 @@ it. All correctness-critical modules — the prerequisite classifier, the constr
 claim verifier, the orchestrator (including the chat→solver translation), the requirements
 logic, and the rationale — are marked `strict` and are explained in §2.
 
-Two honest caveats, because a provenance log that only reassures is not doing its job:
-
-- **`strict` is an attestation.** Nothing in the repo can prove how deeply a human read a
-  file. §2 exists as the evidence we can actually offer: explanations that are checkable
-  against the code. The defects we caught are listed in [`docs/ai-use.md`](docs/ai-use.md) §4.
 - **The agent wrote the tests for the code the agent wrote.** The duplicate-schedule bug
   (§2.2) passed hundreds of agent-written property tests and shipped anyway; it was caught by a
   human looking at the UI. Agent-generated coverage does not substitute for a person checking

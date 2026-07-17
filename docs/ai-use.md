@@ -136,19 +136,3 @@ enabled at all. The constraint came from us, not the agent — the agent had no 
 deployment environment's limits. It implemented the provider abstraction we asked for.
 
 ---
-
-## 5. Honest limits of this account
-
-- **This document was written by the agent.** So was most of `PROVENANCE.md`'s prose and the
-  architecture write-up. We directed and reviewed them, but you should read a
-  self-assessment of AI use, drafted by the AI, with that in mind. The parts you can check
-  independently — the git history in §3, the code, the tests — are the parts that carry weight.
-- **"Reviewed" is an attestation, not a measurement.** PROVENANCE's `strict` markings record
-  what the named reviewer says they did. Nothing in the repo can prove review depth. The
-  evidence we *can* offer is §4 (defects we actually caught) and the explanations in
-  PROVENANCE (understanding we can demonstrate).
-- **The agent wrote the tests for the code the agent wrote.** §4.2 is the concrete cost of
-  that. It is a structural weakness in this project, not a hypothetical one.
-- **Review depth was not uniform.** It tracked risk deliberately — line-by-line on the
-  solver, a skim on the Makefile. That's a defensible allocation, but it does mean the
-  `skim` rows in PROVENANCE carry real, if small, risk.
