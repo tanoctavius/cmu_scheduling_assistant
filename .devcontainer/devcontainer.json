@@ -27,6 +27,6 @@
     "UV_PROJECT_ENVIRONMENT": "/workspaces/cmu-scheduler/backend/.venv",
     "UV_LINK_MODE": "copy"
   },
-  "postCreateCommand": "cd backend && uv sync",
+  "postCreateCommand": "cd backend && uv sync && cd ../frontend && npm install && cp -n .env.example .env",
   "remoteUser": "vscode"
 }

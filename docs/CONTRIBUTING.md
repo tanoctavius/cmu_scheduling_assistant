@@ -1,7 +1,7 @@
 # Contributing
 
-Short version of the conventions — see the [README](README.md#conventions) and
-[`project_context.md`](project_context.md) for the full picture.
+Short version of the conventions — see the [README](../README.md#conventions) and
+[`project-context.md`](project-context.md) for the full picture.
 
 ## Branches
 
@@ -29,5 +29,5 @@ preferred: `feat: add branch-and-bound solver`. Subject under ~72 chars.
 - No secrets committed — API keys live in env vars only.
 - The LLM never originates schedule data; the solver builds schedules, the LLM explains.
 - Build order: deterministic, testable pieces first; LLM and cloud last.
-- Record each change in [`PROVENANCE.md`](PROVENANCE.md); correctness-critical modules need
+- Record each change in [`PROVENANCE.md`](../PROVENANCE.md); correctness-critical modules need
   a named reviewer and `strict` review.

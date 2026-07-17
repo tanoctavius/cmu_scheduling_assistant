@@ -32,7 +32,9 @@ cd "$APP_DIR"
 # --- Backend deps (uv downloads the right Python automatically) --------------
 cd "$APP_DIR/backend"
 uv sync
-# For the real LLM instead of the stub, later run:  uv sync --extra llm
+# The LLM stub is the default and needs nothing extra. For a real model, write
+# LLM_PROVIDER/LLM_MODEL/GROQ_API_KEY into backend/.env (systemd loads it via
+# EnvironmentFile below) — no additional dependency is required.
 
 # --- Frontend deps -----------------------------------------------------------
 cd "$APP_DIR/frontend"

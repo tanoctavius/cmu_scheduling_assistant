@@ -9,40 +9,42 @@ and checked against the real schedule. They can then *talk* to the calendar: ask
 A deterministic solver builds and validates every schedule. The language model never places a
 class, never edits a calendar, and never authors a fact the student sees.
 
-## Architecture at a glance
+## Architecture in one paragraph
 
 The spine of the system is one rule: **hard scheduling logic is deterministic; the LLM only
-proposes, and a deterministic verifier checks every factual claim before it reaches the
-student.** There are two request paths, and the solver owns the calendar on both.
+proposes; and a deterministic verifier checks every factual claim before it reaches the
+student.** A survey and prereq checklist feed a classifier (each course becomes *eligible*,
+*unconfirmed*, or *blocked*); a branch-and-bound solver builds and ranks the top-K
+conflict-free schedules; and a rationale is derived from each solved schedule and gated by the
+claim verifier, so every fact shown to a student has been checked against the real schedule.
+The only AI step is the chat: the model decides whether a turn is a *question* or a *change
+request* and, if it's a change, fills a closed `ScheduleConstraints` struct (avoid these days,
+cap units, no class before/after, drop this course). Those constraints become ordinary solver
+inputs, and the **solver** builds the actual calendar — there is no field in which a model can
+say "put 15-213 here." Ingestion runs off the request path against committed fixtures, and the
+LLM defaults to a deterministic offline stub, so the whole thing runs and tests with no
+secrets, no network, and no cloud.
 
-**Build / confirm** — no LLM at all:
+📐 **[`docs/architecture.md`](docs/architecture.md) — the diagram, the cloud services, and why
+we chose them.** Start there.
 
-```
-survey ─▶ prereq classifier ─▶ fused solver + ranking ─▶ rationale + claim verifier ─▶ UI
-        (eligible/unconfirmed/   (branch-and-bound,       (facts derived from the
-         blocked, §3)             deduped top-K, §5)       schedule, then gated §6)
-```
+### Documentation map
 
-**Chat** — the LLM proposes; the solver disposes:
+A stranger should be able to understand this project from three files, without reading code:
 
-```
-"make it lighter" ─▶ LLM ─▶ ScheduleConstraints ─▶ same solver ─▶ rationale + verifier ─▶ UI
-                     (classify + propose only)     (builds the actual new schedule)
-```
+| Read this | For |
+|---|---|
+| **`README.md`** (you are here) | What it is, how to run it, day-to-day reference |
+| **[`docs/architecture.md`](docs/architecture.md)** | The diagram + write-up: what we built, which cloud services, and why |
+| **[`PROVENANCE.md`](PROVENANCE.md)** | Who wrote and reviewed every module — and, for the correctness-critical ones, our own explanation of how they work |
 
-The LLM's entire authority is: decide whether a turn is a *question* or a *change*, and if
-it's a change, fill a closed `ScheduleConstraints` struct. Those constraints become ordinary
-solver inputs (a units cap, commitment blocks, an exclusion set), so the solver's tested
-invariants — no conflicts, commitments respected, cap honored — hold unchanged. There is no
-field in which a model can say "put 15-213 here."
+Supporting documents:
 
-Ingestion runs **off the request path**: we parse the CMU Schedule of Classes and Course
-Catalog ourselves into normalized models (no hosted API). Everything runs without secrets —
-ingestion reads committed fixtures, and the LLM defaults to a deterministic, offline stub.
-
-- **Full design write-up & rationale:** [`project_context.md`](project_context.md)
-- **Per-stage record of what was human- vs. agent-written:** [`PROVENANCE.md`](PROVENANCE.md)
-- **Ingestion (self-owned, dry-run mode, manual-FCE caveat):** [`scripts/ingest/README.md`](scripts/ingest/README.md)
+- [`docs/ai-use.md`](docs/ai-use.md) — how AI was used here, by mode (Operator/Agent vs. Critic)
+- [`docs/project-context.md`](docs/project-context.md) — the original design write-up & rationale
+- [`docs/deployment.md`](docs/deployment.md) — deploying to AWS Academy Learner Lab
+- [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) — conventions, short version
+- [`scripts/ingest/README.md`](scripts/ingest/README.md) — ingestion: sources, dry-run, manual-FCE caveat
 
 ## Repo layout
 
@@ -70,11 +72,13 @@ data/
   samples/             committed example inputs (shape of normalized data)
   fixtures/            committed HTML/CSV fixtures for dry-run ingestion & tests
 scripts/ingest/        self-owned scrapers/parsers for SOC + Catalog + FCE
-docs/                  design notes
-deploy/                Learner Lab deployment notes
-.devcontainer/         Dockerfile + devcontainer.json (Python 3.11, Node 20, uv, deps)
+docs/                  all project documentation (see the map above)
+deploy/                Learner Lab provisioning scripts (user-data.sh, update.sh)
+.devcontainer/         Dockerfile + devcontainer.json (Python 3.11, Node 20, uv, both tiers' deps)
 .github/workflows/     CI: backend tests on push
 Makefile               dev / test / lint / ingest targets
+README.md              this file
+PROVENANCE.md          authorship, review, and how the critical modules work
 ```
 
 ## The API
@@ -103,9 +107,9 @@ cd cmu-scheduler
 
 ### 2. Open in the devcontainer (recommended — zero setup)
 
-The repo ships a devcontainer. In VS Code, **Reopen in Container**; the toolchain — Python
-3.11, Node 20, [uv](https://docs.astral.sh/uv/), and the backend dependencies — is already
-installed. Skip to step 4.
+The repo ships a devcontainer. In VS Code, **Reopen in Container**. It brings up Python 3.11,
+Node 20, and [uv](https://docs.astral.sh/uv/), then installs **both** tiers' dependencies and
+writes `frontend/.env` for you. Nothing else to install — **skip to step 4**.
 
 Prefer a local toolchain? Install **uv**, **Python 3.11+**, and **Node 20+**, then continue.
 
@@ -139,9 +143,11 @@ cold start is always clean — safe against a Learner Lab session timing out.
 ### 5. Run the frontend (in a second terminal)
 
 ```bash
-cd frontend && cp .env.example .env    # set VITE_BACKEND_URL if not on :8000
 make frontend                          # -> http://localhost:5173
 ```
+
+> Local toolchain only: `cd frontend && cp .env.example .env` first, and set
+> `VITE_BACKEND_URL` if the backend isn't on `:8000`. The devcontainer does this for you.
 
 ### 6. Use it
 
@@ -273,4 +279,4 @@ make help             # list all targets
   defaults to an offline stub, so the full suite passes with no API key and no network. No
   secrets are committed — keys live in env vars only, and `.env` is gitignored.
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the short version.
+See [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) for the short version.

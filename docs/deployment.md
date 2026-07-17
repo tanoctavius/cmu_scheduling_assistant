@@ -13,7 +13,7 @@ rewrites frontend/.env (VITE_BACKEND_URL), and rebuilds the frontend.
 This is what makes the changing-IP problem disappear.
 ```
 
-The backend uses the deterministic LLM stub until an `ANTHROPIC_API_KEY` is added, so the app is fully demoable the moment the instance boots — no secrets required.
+The backend defaults to the deterministic, offline LLM stub, so the app is fully demoable the moment the instance boots — no secrets required. See [step 5](#5-optional-use-a-real-llm) to switch it to a real model.
 
 ---
 
@@ -51,15 +51,21 @@ sudo tail -f /var/log/user-data.log
 - Backend: `http://<PUBLIC_IP>:8000/health` → `{"status":"ok"}`
 - Frontend: `http://<PUBLIC_IP>` → survey page loads
 
-### 5. (Optional) Add the real LLM key
-The stub works for the full demo flow. To use the real model:
+### 5. (Optional) Use a real LLM
+The stub works for the full demo flow, including the chat. To use a real model instead, write the provider config to `backend/.env` — the `scheduler-backend` systemd unit loads it via `EnvironmentFile=`, so no extra dependency is needed:
+
 ```bash
 ssh -i scheduler-key.pem ubuntu@<PUBLIC_IP>
 cd /opt/app/backend
-/usr/local/bin/uv sync --extra llm
-echo "ANTHROPIC_API_KEY=sk-ant-..." | sudo tee .env
+sudo tee .env >/dev/null <<'EOF'
+LLM_PROVIDER=groq
+LLM_MODEL=llama-3.3-70b-versatile
+GROQ_API_KEY=gsk_...
+EOF
 sudo systemctl restart scheduler-backend
 ```
+
+No extra `uv sync` is needed: the Groq path is a plain HTTPS call over `httpx`, which is already a core dependency. See the [README's provider section](../README.md#configuring-the-llm-provider) for every variable.
 
 ---
 
@@ -87,24 +93,13 @@ sudo bash /opt/app/deploy/update.sh
 
 ---
 
-## The One Code Change the Repo Probably Needs: CORS
+## CORS — already handled
 
-In dev, the frontend (localhost:5173) and backend (localhost:8000) are both localhost, and the repo's CORS settings likely reflect that. Deployed, the frontend origin becomes `http://<PUBLIC_IP>` calling `http://<PUBLIC_IP>:8000` — a different origin, so the browser will block API calls unless the backend allows it.
+Deployed, the frontend origin (`http://<PUBLIC_IP>`) calls the backend at `http://<PUBLIC_IP>:8000` — a different origin, so the browser would block API calls unless the backend allows it.
 
-Check `backend/app/main.py` for `CORSMiddleware`. For the class demo, the pragmatic setting is:
+This is **already configured**: `backend/app/main.py` installs `CORSMiddleware` with `allow_origins=["*"]`. That is fine for a class demo and should be tightened to the real origin before anything beyond one — it's listed as a gap in [`architecture.md`](architecture.md) §7.
 
-```python
-from fastapi.middleware.cors import CORSMiddleware
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],   # fine for a class demo; tighten for anything real
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-```
-
-If API calls fail in the browser with the frontend loading fine, open DevTools → Console — a CORS error there means this is the fix. This is a good small PR to bring to the team.
+If the frontend loads but API calls fail, open DevTools → Console. A CORS error there means the middleware isn't running (check `journalctl -u scheduler-backend`); anything else is usually the backend being down or the IP refresh not having run.
 
 ---
 
@@ -126,21 +121,4 @@ If API calls fail in the browser with the frontend loading fine, open DevTools �
 
 ---
 
-## Suggested README Addition (answers "link the sandbox")
-
-Once this works, add to the repo README so the whole team can find and use the deployment:
-
-```markdown
-## Deployment (AWS Academy Learner Lab)
-
-The demo runs in [NAME]'s Learner Lab sandbox
-(AWS Academy → [course name] → Modules → Launch AWS Academy Learner Lab).
-The public IP changes every lab session — [NAME] posts the current URL
-in the group chat when the lab is up.
-
-Deploy/update instructions: [`deploy/LEARNER_LAB.md`](deploy/LEARNER_LAB.md)
-```
-
----
-
-**Cost estimate:** t3.small ≈ $0.02/hr, auto-stopped between sessions → roughly $5–15 of the lab budget for the rest of the semester. The Anthropic API bills separately and never touches the AWS budget.
+**Cost estimate:** t3.small ≈ $0.02/hr, auto-stopped between sessions → roughly $5–15 of the lab budget for the rest of the semester. Groq bills separately (and only if you configure it) — it never touches the AWS budget.
