@@ -1,0 +1,103 @@
+<svg width="100%" viewBox="0 0 760 880" xmlns="http://www.w3.org/2000/svg" role="img" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+  <title>cmu-scheduler system architecture</title>
+  <desc>Ingestion parses CMU sources into a catalog store off the request path. On the request path, a survey feeds a query router, which sends structured questions to a deterministic fused solver and fuzzy questions to semantic retrieval; both feed an LLM orchestrator that explains and ranks results; a deterministic claim verifier checks every factual claim before it reaches the chat and week-grid UI.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#73726c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="380" y="26" text-anchor="middle" font-size="17" font-weight="500" fill="#242320">cmu-scheduler &#8212; system architecture</text>
+  <text x="380" y="44" text-anchor="middle" font-size="12" fill="#73726c">deterministic solver and verifier own correctness; the LLM only explains and ranks</text>
+
+  <!-- Ingestion lane -->
+  <rect x="70" y="52" width="550" height="98" rx="10" fill="none" stroke="#B4B2A9" stroke-width="1" stroke-dasharray="4 4"/>
+  <text x="85" y="67" font-size="12" fill="#5F5E5A">ingestion &#8212; scheduled batch, off the request path</text>
+
+  <!-- Ext sources -->
+  <rect x="90" y="80" width="210" height="50" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+  <text x="195" y="98" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#2C2C2A">CMU sources</text>
+  <text x="195" y="115" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#444441">SOC, catalog, FCE data</text>
+
+  <!-- Source scrapers -->
+  <rect x="340" y="80" width="250" height="50" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+  <text x="465" y="98" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#2C2C2A">Source scrapers</text>
+  <text x="465" y="115" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#444441">Parses SOC + catalog, no API</text>
+
+  <line x1="300" y1="105" x2="340" y2="105" stroke="#73726c" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Catalog store -->
+  <rect x="340" y="200" width="280" height="54" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+  <text x="480" y="219" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#042C53">Catalog store</text>
+  <text x="480" y="237" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#0C447C">Sections, prereqs, FCE (DynamoDB)</text>
+
+  <line x1="465" y1="130" x2="480" y2="200" stroke="#73726c" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Survey + checklist -->
+  <rect x="50" y="200" width="260" height="54" rx="8" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+  <text x="180" y="219" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#4A1B0C">Survey + checklist</text>
+  <text x="180" y="237" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#712B13">Major, courses, commitments</text>
+
+  <!-- Query router -->
+  <rect x="210" y="340" width="260" height="54" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="340" y="359" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#04342C">Query router</text>
+  <text x="340" y="377" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#085041">Structured vs. fuzzy questions</text>
+
+  <line x1="180" y1="254" x2="340" y2="340" stroke="#73726c" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="480" y1="254" x2="340" y2="340" stroke="#73726c" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Fused solver -->
+  <rect x="80" y="440" width="270" height="60" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="215" y="461" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#04342C">Fused solver</text>
+  <text x="215" y="479" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#085041">Classifies, solves, ranks top-K</text>
+
+  <!-- Semantic retrieval -->
+  <rect x="450" y="440" width="260" height="60" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+  <text x="580" y="461" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#042C53">Semantic retrieval</text>
+  <text x="580" y="479" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#0C447C">Vector search for fuzzy asks</text>
+
+  <line x1="340" y1="394" x2="215" y2="440" stroke="#73726c" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="340" y1="394" x2="580" y2="440" stroke="#73726c" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="155" y="410" font-size="12" fill="#5F5E5A">structured</text>
+  <text x="555" y="410" font-size="12" fill="#5F5E5A">fuzzy</text>
+
+  <!-- LLM orchestrator -->
+  <rect x="265" y="560" width="260" height="60" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+  <text x="395" y="581" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#26215C">LLM orchestrator</text>
+  <text x="395" y="599" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#3C3489">Explains, ranks, emits claims</text>
+
+  <line x1="215" y1="500" x2="340" y2="560" stroke="#73726c" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="580" y1="500" x2="450" y2="560" stroke="#73726c" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Claim verifier -->
+  <rect x="265" y="660" width="260" height="54" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="395" y="679" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#04342C">Claim verifier</text>
+  <text x="395" y="697" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#085041">Checks every claim before output</text>
+
+  <line x1="395" y1="620" x2="395" y2="660" stroke="#73726c" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Chat + week-grid -->
+  <rect x="260" y="760" width="270" height="54" rx="8" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+  <text x="395" y="779" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#4A1B0C">Chat + week-grid</text>
+  <text x="395" y="797" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#712B13">Cited, conflict-free schedules</text>
+
+  <line x1="395" y1="714" x2="395" y2="760" stroke="#73726c" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Legend -->
+  <rect x="43" y="845" width="14" height="14" rx="3" fill="#5F5E5A"/>
+  <text x="63" y="852" dominant-baseline="central" font-size="12" fill="#3d3d3a">Ingestion</text>
+
+  <rect x="154" y="845" width="14" height="14" rx="3" fill="#185FA5"/>
+  <text x="174" y="852" dominant-baseline="central" font-size="12" fill="#3d3d3a">Data store</text>
+
+  <rect x="272" y="845" width="14" height="14" rx="3" fill="#0F6E56"/>
+  <text x="292" y="852" dominant-baseline="central" font-size="12" fill="#3d3d3a">Deterministic core</text>
+
+  <rect x="453" y="845" width="14" height="14" rx="3" fill="#534AB7"/>
+  <text x="473" y="852" dominant-baseline="central" font-size="12" fill="#3d3d3a">LLM (only AI step)</text>
+
+  <rect x="634" y="845" width="14" height="14" rx="3" fill="#993C1D"/>
+  <text x="654" y="852" dominant-baseline="central" font-size="12" fill="#3d3d3a">Interface</text>
+</svg>
