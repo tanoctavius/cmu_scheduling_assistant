@@ -1,4 +1,9 @@
-import type { AskResponse, StudentProfile, SurveyResponse } from "./types";
+import type {
+  AskResponse,
+  RecommendResponse,
+  StudentProfile,
+  SurveyResponse,
+} from "./types";
 
 // Backend base URL comes from an env var (see .env.example); defaults to local dev.
 export const BACKEND_URL: string =
@@ -22,4 +27,20 @@ export function getSurvey(profile: StudentProfile): Promise<SurveyResponse> {
 
 export function ask(profile: StudentProfile, question: string): Promise<AskResponse> {
   return post<AskResponse>("/ask", { profile, question });
+}
+
+// Deterministic top-K schedules + confirmation questions (no LLM). Seeds the
+// prerequisite-confirmation panel.
+export function recommend(profile: StudentProfile): Promise<RecommendResponse> {
+  return post<RecommendResponse>("/recommend", profile);
+}
+
+// Apply the student's per-prereq answers and re-run the cascade (classifier ->
+// solver). `answers` maps a prerequisite course number to whether it's been
+// taken. Goes straight to the deterministic core — never through the LLM.
+export function confirm(
+  profile: StudentProfile,
+  answers: Record<string, boolean>,
+): Promise<RecommendResponse> {
+  return post<RecommendResponse>("/confirm", { profile, answers });
 }

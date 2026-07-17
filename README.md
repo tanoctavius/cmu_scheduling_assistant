@@ -81,9 +81,13 @@ Sanity check:
 curl http://127.0.0.1:8000/health      # {"status":"ok"}
 ```
 
-The LLM orchestrator uses the deterministic **stub** unless `ANTHROPIC_API_KEY` is set — no
-key is needed to run or demo. To use the real model: `export ANTHROPIC_API_KEY=…` and
-install the optional extra (`cd backend && uv sync --extra llm`).
+The LLM layer defaults to a deterministic **stub** that makes no network call, so no key and
+no cloud account are needed to run, demo, or test. To use a real model, see
+[Configuring the LLM provider](#configuring-the-llm-provider) below.
+
+The server holds **no persistent state**: the catalog and requirements are in-memory caches
+built at import and rebuilt on every start, and no LLM client is cached across requests. A
+cold start is always clean — safe against a Learner Lab session timing out.
 
 ### 5. Run the frontend (in a second terminal)
 
@@ -102,6 +106,55 @@ make test             # cd backend && uv run pytest
 ```
 
 The full suite passes from a clean clone with no secrets (CI runs exactly this on push).
+
+## Configuring the LLM provider
+
+The LLM layer is **model- and provider-agnostic**. The orchestrator talks to one interface —
+`LLMProvider.generate(messages, response_schema)` in
+[`backend/app/llm_provider.py`](backend/app/llm_provider.py) — and never knows which provider
+is behind it. Selection is runtime configuration via env vars; **no provider, model ID, base
+URL, or key appears in code**. Copy `backend/.env.example` to `backend/.env` and edit.
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `LLM_PROVIDER` | no | `stub` | Which implementation answers: `stub` or `groq` |
+| `LLM_MODEL` | for `groq` | — | Model name, e.g. `llama-3.3-70b-versatile` |
+| `GROQ_API_KEY` | for `groq` | — | Groq key ([console](https://console.groq.com/keys)) |
+| `GROQ_BASE_URL` | no | `https://api.groq.com/openai/v1` | OpenAI-compatible base URL |
+| `LLM_TIMEOUT_SECONDS` | no | `30` | Per-request timeout |
+
+**`stub` (default)** — deterministic, offline. No key, no SDK, no network call. This is why
+the full test suite and CI pass with zero cloud dependency.
+
+**`groq`** — Groq's OpenAI-compatible Chat Completions API over plain HTTPS:
+
+```bash
+export LLM_PROVIDER=groq
+export GROQ_API_KEY=…              # never commit this; .env is gitignored
+export LLM_MODEL=llama-3.3-70b-versatile
+```
+
+### Why this shape (AWS Academy Learner Lab)
+
+Learner Lab constrains us to `us-east-1`/`us-west-2`, forbids creating IAM roles, expires the
+session after ~4 hours, and may not have Bedrock enabled at all. The `groq` path is a direct
+HTTPS call that touches **neither AWS Bedrock nor AWS IAM**, so it works there unchanged, and
+the `stub` default runs with no cloud at all. Nothing in the app assumes Bedrock.
+
+Adding a provider later (Anthropic direct, Bedrock, OpenAI) means writing **one class** with a
+`generate` method and registering it in `_PROVIDERS` — no change to the orchestrator, and none
+to the verifier.
+
+### The safety gate is provider-independent
+
+Provider choice never changes what is checked. Every factual claim — whoever produced it —
+passes the deterministic [claim verifier](backend/app/verifier.py) before display; failed
+claims are stripped. Behavior is identical across providers: interest questions route to
+semantic retrieval, the LLM only ever describes schedulable (eligible/unconfirmed, never
+blocked or completed) courses the solver already produced, and unconfirmed prereqs surface as
+confirmation controls in the right-hand panel. `backend/tests/test_orchestrator.py` asserts
+this by feeding the *same* false claim through two different providers and requiring both to
+be caught.
 
 ## Other tasks
 

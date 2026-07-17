@@ -9,40 +9,28 @@ then re-checked by the Stage 4 verifier before anything is returned — failed
 claims are stripped (and optionally regenerated). An unverified factual claim
 about a schedule never reaches output.
 
-Backends
---------
-- :class:`AnthropicLLM` calls the Anthropic API (model ``claude-opus-4-8``),
-  reading the key from ``ANTHROPIC_API_KEY``. ``anthropic`` is an optional
-  dependency, imported lazily.
-- :class:`StubLLM` is a deterministic fallback that builds a correctly-shaped,
-  all-true response from the schedule itself. It requires no API key, so the app
-  and the full test suite run without secrets (project context §7).
-
-:func:`select_backend` picks the real backend when a key (and the SDK) are
-present, else the stub.
+Provider-agnostic
+-----------------
+This module knows nothing about *which* model or vendor answers. It builds
+messages, hands them to an :class:`~app.llm_provider.LLMProvider` along with the
+response schema, and gates whatever comes back. Swapping providers is an env var
+(``LLM_PROVIDER``), never a code change here — and, critically, **the verifier
+gate is downstream of every provider**, so the safety guarantee is identical no
+matter who generated the claims. See :mod:`app.llm_provider`.
 """
 
 from __future__ import annotations
 
-import os
-from typing import Optional, Protocol
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from app.llm_provider import LLMProvider, Message, embed_facts, select_provider
 from app.models import Schedule, StudentProfile
 from app.prereq import Classification
-from app.verifier import (
-    Claim,
-    ClaimCheck,
-    IncludesCourseClaim,
-    NoClassOnClaim,
-    NoConflictsClaim,
-    TotalUnitsClaim,
-    verify,
-)
+from app.verifier import Claim, ClaimCheck, verify
 
 _DAY_ORDER = ["M", "T", "W", "R", "F"]
-_MODEL = "claude-opus-4-8"
 
 
 # --- Shared confirmation-question type --------------------------------------
@@ -134,135 +122,7 @@ def build_confirmation_questions(ctx: ScheduleContext) -> list[ConfirmationQuest
     return questions
 
 
-# --- Backends ----------------------------------------------------------------
-
-
-class LLMBackend(Protocol):
-    name: str
-
-    def explain_schedule(
-        self,
-        ctx: ScheduleContext,
-        profile: StudentProfile,
-        *,
-        fit_rank: int,
-        question: Optional[str],
-        retrieved_context: Optional[str],
-        prior_failures: Optional[list[ClaimCheck]],
-    ) -> ScheduleExplanation: ...
-
-
-class StubLLM:
-    """Deterministic, all-true explanation built from the schedule facts.
-
-    Emits exactly the claim types the verifier checks, every one true by
-    construction — so with no API key the pipeline runs end to end and all
-    returned claims pass verification.
-    """
-
-    name = "stub"
-
-    def explain_schedule(
-        self,
-        ctx: ScheduleContext,
-        profile: StudentProfile,
-        *,
-        fit_rank: int,
-        question: Optional[str] = None,
-        retrieved_context: Optional[str] = None,
-        prior_failures: Optional[list[ClaimCheck]] = None,
-    ) -> ScheduleExplanation:
-        schedule = ctx.schedule
-        course_nums = schedule.course_nums
-        free = _free_days(schedule)
-
-        free_phrase = (
-            f" It keeps {', '.join(free)} free." if free else " It meets every weekday."
-        )
-        explanation = (
-            f"This schedule carries {schedule.total_units:g} units across "
-            f"{len(course_nums)} course(s): {', '.join(course_nums)}."
-            f"{free_phrase} There are no time conflicts, and the estimated workload "
-            f"is about {schedule.total_workload_hours:g} hours/week."
-        )
-
-        claims: list[Claim] = [
-            TotalUnitsClaim(value=schedule.total_units),
-            NoConflictsClaim(),
-        ]
-        claims.extend(IncludesCourseClaim(course_num=num) for num in course_nums)
-        claims.extend(NoClassOnClaim(day=day) for day in free)
-
-        return ScheduleExplanation(
-            explanation=explanation,
-            fit_rank=fit_rank,
-            claims=claims,
-            confirmation_questions=build_confirmation_questions(ctx),
-        )
-
-
-class AnthropicLLM:
-    """Real backend: Anthropic API (``claude-opus-4-8``), structured output.
-
-    The prompt hands the model only the solver's facts and constrains it to emit
-    claims in the verifier's schema. Its output is still run through the verifier
-    — the model is never trusted, only checked.
-    """
-
-    name = "anthropic"
-
-    def explain_schedule(
-        self,
-        ctx: ScheduleContext,
-        profile: StudentProfile,
-        *,
-        fit_rank: int,
-        question: Optional[str] = None,
-        retrieved_context: Optional[str] = None,
-        prior_failures: Optional[list[ClaimCheck]] = None,
-    ) -> ScheduleExplanation:
-        import anthropic  # lazy: optional dependency, only needed on the real path
-
-        client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from the environment
-
-        facts = _facts_block(ctx)
-        correction = ""
-        if prior_failures:
-            issues = "; ".join(c.message for c in prior_failures)
-            correction = (
-                "\n\nYour previous claims failed verification and were rejected: "
-                f"{issues}. Emit only claims that are true of the schedule above."
-            )
-
-        system = (
-            "You explain course schedules a deterministic solver already produced. "
-            "You must NOT invent courses, sections, times, or units — use only the "
-            "facts given. Emit factual assertions ONLY as structured claims drawn "
-            "from the allowed claim types; every claim must be true of the schedule."
-        )
-        user = (
-            f"Student interests: {', '.join(profile.interests) or 'none stated'}.\n"
-            f"{'Question: ' + question if question else ''}\n"
-            f"{'Context: ' + retrieved_context if retrieved_context else ''}\n\n"
-            f"Schedule facts:\n{facts}\n\n"
-            f"Write a short plain-language explanation, a fit_rank of {fit_rank}, "
-            "structured claims, and a confirmation question for each unconfirmed "
-            f"course.{correction}"
-        )
-
-        response = client.messages.parse(
-            model=_MODEL,
-            max_tokens=2048,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-            output_format=ScheduleExplanation,
-        )
-        parsed = response.parsed_output
-        if parsed is None:  # pragma: no cover - defensive; the verifier still gates output
-            return ScheduleExplanation(
-                explanation="", fit_rank=fit_rank, claims=[], confirmation_questions=[]
-            )
-        return parsed
+# --- Prompt construction -----------------------------------------------------
 
 
 def _facts_block(ctx: ScheduleContext) -> str:
@@ -284,16 +144,57 @@ def _facts_block(ctx: ScheduleContext) -> str:
     return "\n".join(lines)
 
 
-def select_backend() -> LLMBackend:
-    """Real backend if a key and the SDK are available, else the deterministic stub."""
-    if os.getenv("ANTHROPIC_API_KEY"):
-        try:
-            import anthropic  # noqa: F401
+def build_messages(
+    ctx: ScheduleContext,
+    profile: StudentProfile,
+    *,
+    fit_rank: int,
+    question: Optional[str] = None,
+    retrieved_context: Optional[str] = None,
+    prior_failures: Optional[list[ClaimCheck]] = None,
+) -> list[Message]:
+    """Build the provider-neutral prompt for one schedule.
 
-            return AnthropicLLM()
-        except Exception:  # pragma: no cover - SDK missing despite a key present
-            pass
-    return StubLLM()
+    The same messages go to every provider. They carry only facts the solver
+    already produced — the model is asked to explain and rank, never to originate
+    schedule data. An embedded ``<facts>`` JSON block grounds real providers and
+    lets the offline stub reconstruct a truthful answer.
+    """
+    correction = ""
+    if prior_failures:
+        issues = "; ".join(c.message for c in prior_failures)
+        correction = (
+            "\n\nYour previous claims failed verification and were rejected: "
+            f"{issues}. Emit only claims that are true of the schedule above."
+        )
+
+    system = (
+        "You explain course schedules a deterministic solver already produced. "
+        "You must NOT invent courses, sections, times, or units — use only the "
+        "facts given. Emit factual assertions ONLY as structured claims drawn "
+        "from the allowed claim types; every claim must be true of the schedule."
+    )
+    facts_payload = {
+        "fit_rank": fit_rank,
+        "total_units": ctx.schedule.total_units,
+        "total_workload_hours": ctx.schedule.total_workload_hours,
+        "courses": ctx.schedule.course_nums,
+        "free_days": _free_days(ctx.schedule),
+        "confirmation_questions": [
+            q.model_dump() for q in build_confirmation_questions(ctx)
+        ],
+    }
+    user = (
+        f"Student interests: {', '.join(profile.interests) or 'none stated'}.\n"
+        f"{'Question: ' + question if question else ''}\n"
+        f"{'Context: ' + retrieved_context if retrieved_context else ''}\n\n"
+        f"Schedule facts:\n{_facts_block(ctx)}\n\n"
+        f"{embed_facts(facts_payload)}\n\n"
+        f"Write a short plain-language explanation, a fit_rank of {fit_rank}, "
+        "structured claims, and a confirmation question for each unconfirmed "
+        f"course.{correction}"
+    )
+    return [Message(role="system", content=system), Message(role="user", content=user)]
 
 
 # --- Orchestration -----------------------------------------------------------
@@ -305,40 +206,48 @@ def orchestrate(
     *,
     question: Optional[str] = None,
     retrieved_context: Optional[str] = None,
-    backend: Optional[LLMBackend] = None,
+    provider: Optional[LLMProvider] = None,
     regenerate_attempts: int = 0,
 ) -> OrchestrationResult:
     """Explain and rank each schedule, then gate every claim through the verifier.
 
-    For each schedule the chosen backend produces an explanation + claims; the
+    For each schedule the selected provider produces an explanation + claims; the
     claims are verified; failures are stripped, and — up to
-    ``regenerate_attempts`` times — the backend is re-asked with the failures
+    ``regenerate_attempts`` times — the provider is re-asked with the failures
     named. Only claims that pass verification are returned.
+
+    Which provider answers is irrelevant to this function and to the gate below:
+    every claim from every provider goes through the same :func:`verify`.
     """
-    backend = backend or select_backend()
+    provider = provider or select_provider()
 
     explanations: list[VerifiedExplanation] = []
     for rank, ctx in enumerate(contexts, start=1):
-        raw = backend.explain_schedule(
-            ctx,
-            profile,
-            fit_rank=rank,
-            question=question,
-            retrieved_context=retrieved_context,
-            prior_failures=None,
+        raw = provider.generate(
+            build_messages(
+                ctx,
+                profile,
+                fit_rank=rank,
+                question=question,
+                retrieved_context=retrieved_context,
+            ),
+            ScheduleExplanation,
         )
         result = verify(raw.claims, ctx.schedule)
 
         attempts = 0
         while result.failed_checks and attempts < regenerate_attempts:
             attempts += 1
-            raw = backend.explain_schedule(
-                ctx,
-                profile,
-                fit_rank=rank,
-                question=question,
-                retrieved_context=retrieved_context,
-                prior_failures=result.failed_checks,
+            raw = provider.generate(
+                build_messages(
+                    ctx,
+                    profile,
+                    fit_rank=rank,
+                    question=question,
+                    retrieved_context=retrieved_context,
+                    prior_failures=result.failed_checks,
+                ),
+                ScheduleExplanation,
             )
             result = verify(raw.claims, ctx.schedule)
 
@@ -354,4 +263,4 @@ def orchestrate(
             )
         )
 
-    return OrchestrationResult(backend=backend.name, explanations=explanations)
+    return OrchestrationResult(backend=provider.name, explanations=explanations)

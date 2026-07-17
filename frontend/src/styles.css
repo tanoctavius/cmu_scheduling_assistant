@@ -218,14 +218,146 @@ button:disabled {
   margin: 12px 0;
 }
 
-.confirm {
-  margin-top: 10px;
+/* Schedule + prerequisite workspace */
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
-.confirm-q {
-  color: var(--warn);
+.panel-head h2 {
+  margin-bottom: 0;
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--border);
+  padding: 5px 12px;
+  font-size: 0.85rem;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: 1fr 260px;
+  gap: 16px;
+  align-items: start;
+  margin-top: 14px;
+}
+
+@media (max-width: 720px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+}
+
+.option-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.option-tab {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.option-tab.on {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+
+.calendar-wrap {
+  position: relative;
+}
+
+.calendar-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--muted);
+  font-weight: 600;
   font-size: 0.9rem;
+  border-radius: 8px;
+}
+
+/* Confirmation panel */
+.confirm-panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #fbfbfc;
+  position: sticky;
+  top: 12px;
+}
+
+.confirm-panel h3 {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+}
+
+.confirm-list {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0;
+}
+
+.confirm-control {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.confirm-course {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.confirm-prereq {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin: 4px 0;
+}
+
+.confirm-prereq-num {
+  font-size: 0.85rem;
+}
+
+.toggle-group {
+  display: flex;
+  gap: 4px;
+}
+
+button.toggle {
+  background: #fff;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  padding: 3px 12px;
+  font-size: 0.8rem;
+}
+
+button.toggle.on.yes {
+  background: var(--ok);
+  color: #fff;
+  border-color: var(--ok);
+}
+
+button.toggle.on.no {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
 }
 
 /* Week grid */

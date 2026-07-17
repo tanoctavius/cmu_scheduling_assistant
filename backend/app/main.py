@@ -131,7 +131,9 @@ class AskResult(BaseModel):
 class AskResponse(BaseModel):
     question: str
     route: str  # "structured" | "semantic"
-    llm_backend: str  # "none" (structured) | "stub" | "anthropic"
+    # "none" on the structured route (no LLM involved); otherwise the LLM_PROVIDER
+    # that answered — "stub" | "groq" | any provider added later.
+    llm_backend: str
     results: list[AskResult]
     disclaimer: str
 

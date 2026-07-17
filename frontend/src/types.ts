@@ -78,3 +78,22 @@ export interface AskResponse {
   results: AskResult[];
   disclaimer: string;
 }
+
+// One solved schedule as returned by the deterministic /recommend & /confirm
+// endpoints (no LLM prose — this is the classify -> solve -> rank output).
+export interface ScheduleOut {
+  sections: Section[];
+  total_units: number;
+  total_workload_hours: number;
+  score: number;
+  classifications: Record<string, string>;
+  requirements_advanced: GroupRef[];
+}
+
+// Response of the deterministic cascade endpoints. `/recommend` seeds the panel;
+// `/confirm` returns the re-solved schedules after a prereq answer.
+export interface RecommendResponse {
+  schedules: ScheduleOut[];
+  confirmation_questions: ConfirmationQuestion[];
+  disclaimer: string;
+}

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ask, getSurvey } from "./api";
 import { ChatBox } from "./components/ChatBox";
 import { PrereqChecklist } from "./components/PrereqChecklist";
+import { SchedulePanel } from "./components/SchedulePanel";
 import { SurveyForm } from "./components/SurveyForm";
 import type { AskResponse, ChecklistGroup, StudentProfile } from "./types";
 
@@ -64,6 +65,7 @@ export default function App() {
             />
           </div>
           <div className="col-right">
+            <SchedulePanel profile={profile} completed={completed} />
             <ChatBox onAsk={handleAsk} />
           </div>
         </div>

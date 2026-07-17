@@ -9,14 +9,12 @@ dependencies = [
     "uvicorn",
     "pydantic",
     # Ingestion (off the request path): live fetch + HTML parsing of CMU sources.
+    # Also the transport for OpenAI-compatible LLM providers (see app/llm_provider.py) —
+    # no vendor SDK is required, and no provider dependency is needed for the
+    # default `stub`, which makes no network call at all.
     "httpx",
     "beautifulsoup4",
 ]
-
-[project.optional-dependencies]
-# The LLM orchestrator's real backend. Optional so the app + full test suite run
-# without it (the deterministic stub fallback needs no key and no SDK).
-llm = ["anthropic"]
 
 [dependency-groups]
 dev = [

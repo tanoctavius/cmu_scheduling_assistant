@@ -19,6 +19,7 @@ jobs:
 
       - name: Run tests
         working-directory: backend
-        # No ANTHROPIC_API_KEY is set: the orchestrator's deterministic stub is
-        # exercised, so the full suite passes with no secrets.
+        # LLM_PROVIDER is unset, so the default `stub` provider answers: no key, no
+        # SDK, no network, no cloud. The full suite passes with no secrets. Real
+        # providers are exercised over mocked HTTP.
         run: uv run pytest -q

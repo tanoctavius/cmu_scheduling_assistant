@@ -53,16 +53,8 @@ function ResultCard({ result }: { result: AskResult }) {
           ))}
         </div>
       )}
-
-      {result.confirmation_questions.length > 0 && (
-        <div className="confirm">
-          {result.confirmation_questions.map((q) => (
-            <p key={q.course_num} className="confirm-q">
-              ⚠ {q.question}
-            </p>
-          ))}
-        </div>
-      )}
+      {/* Prerequisite confirmation now lives in the interactive SchedulePanel
+          beside the calendar, not inline in the chat answer. */}
     </div>
   );
 }
@@ -92,7 +84,7 @@ export function ChatBox({ onAsk }: Props) {
 
   return (
     <div className="card">
-      <h2>3 · Ask for a schedule</h2>
+      <h2>4 · Ask about your schedule</h2>
       <form className="chat-form" onSubmit={submit}>
         <input
           value={question}

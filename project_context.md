@@ -140,8 +140,9 @@ Six layers, top (ingestion) to bottom (interface):
    it prunes with the ranking score as the bound.
 5. **LLM orchestrator** — explains the top-K, ranks by fit, cites real sections, attaches
    prereq-confirmation questions. Emits factual claims in a structured format for the
-   verifier. (AWS: Amazon Bedrock — keeps the model call inside the same IAM/security
-   boundary.)
+   verifier. **Provider-agnostic**: it calls one `LLMProvider.generate(...)` interface and
+   never knows which model or vendor is behind it; the implementation is chosen at runtime
+   from `LLM_PROVIDER`. (Originally scoped to Amazon Bedrock; see §6.)
 6. **Claim verifier** — deterministic gate. Re-checks every factual claim (days off, unit
    totals, no conflicts) against the solver's actual output before it reaches the student.
    Failed claims are stripped or regenerated.
@@ -162,7 +163,7 @@ otherwise — near-ideal for pay-per-use.
 | Raw scraped artifacts | S3 | Cheap, durable, audit trail of what was ingested when |
 | Catalog store | DynamoDB | Key-based lookups, single-digit-ms reads |
 | Semantic retrieval | OpenSearch Serverless | Vector search without running our own DB |
-| LLM serving | Amazon Bedrock | Model call inside our AWS IAM/security boundary |
+| LLM serving | *Provider-agnostic* (`LLM_PROVIDER`) | See the note below — Bedrock is no longer assumed |
 | Request path | Lambda (or Fargate) | Scales per-user; Fargate if solve times grow |
 | Front end | CloudFront + S3 | Static hosting |
 | API | API Gateway | Fronts the request Lambda |
@@ -171,6 +172,26 @@ otherwise — near-ideal for pay-per-use.
 
 Known tradeoff: serverless cold-start latency on a conversational tool. For a live demo,
 keep one Lambda warm or run the request path on a small always-on Fargate task.
+
+### LLM serving: why not Bedrock
+
+This table originally named **Amazon Bedrock**, on the reasoning that keeping the model call
+inside our IAM boundary was worth the coupling. We build and demo in **AWS Academy Learner
+Lab**, which only offers `us-east-1`/`us-west-2`, forbids creating IAM roles, times the
+session out after ~4 hours, and may not have Bedrock enabled at all — so that assumption
+does not survive contact with the environment.
+
+The LLM layer is therefore **provider-agnostic**: one `LLMProvider` interface, the
+implementation chosen at runtime from `LLM_PROVIDER`, with every key, base URL, and model name
+coming from env vars. Two implementations exist today — `stub` (deterministic, offline, the
+default, so CI needs no cloud) and `groq` (a direct HTTPS call to an OpenAI-compatible
+endpoint, touching neither Bedrock nor IAM). Bedrock is now just *one more class someone could
+write later*, not a load-bearing assumption.
+
+This costs us the IAM-boundary property the Bedrock choice was chosen for; the mitigation is
+that the model is never trusted in the first place — the deterministic claim verifier (§5.6)
+re-checks every factual claim regardless of which provider produced it, so the safety
+guarantee does not depend on where the model runs.
 
 ---
 

@@ -5,6 +5,9 @@ response shapes and the cascade: confirming a prerequisite flips a dependent
 course from unconfirmed to eligible and drops its confirmation question.
 """
 
+import json
+
+import httpx
 from app.main import DEFAULT_UNITS_CAP, app
 from fastapi.testclient import TestClient
 
@@ -129,6 +132,38 @@ def test_confirm_cascade_unlocks_dependent():
     assert "15-122" not in q_courses_after
 
 
+def _scheduled_course_nums(body: dict) -> set[str]:
+    """Every course that actually appears on a returned schedule's calendar."""
+    return {
+        section["course_num"]
+        for sched in body["schedules"]
+        for section in sched["sections"]
+    }
+
+
+def test_confirm_answer_updates_returned_schedule():
+    # The interactive confirmation panel answers one prereq at a time and re-solves
+    # via /confirm; the calendar must change in place. Here, answering "no" to a
+    # prereq rules out its dependent, so that course leaves every returned schedule.
+    profile = _cs_profile(interests=["Imperative Computation"])
+
+    before = client.post("/recommend", json=profile).json()
+    # 15-122 is scheduled (as unconfirmed) before any answer, and it appears on a
+    # calendar, so removing it is an observable change to the returned schedule.
+    assert "15-122" in _scheduled_course_nums(before)
+    assert _schedule_state_for(before, "15-122") == "unconfirmed"
+
+    # Student answers "No" to 15-112 (a control on the panel). 15-122's only prereq
+    # is now ruled out -> blocked -> it drops off the schedule entirely.
+    after = client.post(
+        "/confirm", json={"profile": profile, "answers": {"15-112": False}}
+    ).json()
+
+    assert "15-122" not in _scheduled_course_nums(after)
+    # The returned schedule genuinely changed as a result of the answer.
+    assert _scheduled_course_nums(after) != _scheduled_course_nums(before)
+
+
 def test_completed_course_excluded_but_still_satisfies_prereqs():
     # Two roles of completed_courses: (2) a completed course must never be
     # recommended back, and (1) it must still satisfy prereqs for other courses.
@@ -175,7 +210,7 @@ def test_completed_requirement_course_never_recommended():
 
 def test_completed_course_excluded_from_ask_schedules(monkeypatch):
     # The same exclusion holds on the /ask path (shared _solve_for).
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)  # default provider = offline stub
     profile = _cs_profile(completed_courses=["15-112"], interests=["machine learning"])
     body = client.post(
         "/ask", json={"profile": profile, "question": "What's the best fit for me?"}
@@ -202,7 +237,7 @@ def test_confirm_no_answer_ruled_out_does_not_crash_and_excludes_blocked():
 
 def test_ask_semantic_uses_stub_and_all_claims_verify(monkeypatch):
     # No API key -> deterministic stub backend; every returned claim must verify.
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)  # default provider = offline stub
     resp = client.post(
         "/ask",
         json={
@@ -228,8 +263,50 @@ def test_ask_semantic_uses_stub_and_all_claims_verify(monkeypatch):
         assert units_claims and units_claims[0]["value"] == result["total_units"]
 
 
+def test_ask_uses_the_provider_named_by_env_and_still_verifies(monkeypatch):
+    # Provider choice is runtime config: with LLM_PROVIDER=groq the same /ask path
+    # routes through Groq (HTTP mocked — no real key) and reports it. The verifier
+    # gate is unchanged: the false claim this "model" emits is still stripped.
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.setenv("GROQ_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("LLM_MODEL", "test-model")
+
+    content = json.dumps(
+        {
+            "explanation": "A fine schedule.",
+            "fit_rank": 1,
+            "claims": [{"type": "total_units", "value": 999.0}],  # FALSE
+            "confirmation_questions": [],
+        }
+    )
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": content}}]},
+            request=httpx.Request("POST", "https://example.invalid"),
+        ),
+    )
+
+    body = client.post(
+        "/ask",
+        json={
+            "profile": _cs_profile(interests=["machine learning"]),
+            "question": "Which schedule best fits my interests?",
+        },
+    ).json()
+
+    assert body["route"] == "semantic"
+    assert body["llm_backend"] == "groq"  # the selected provider answered
+    for result in body["results"]:
+        # The bogus unit total never reaches the student, exactly as with the stub.
+        assert result["verified_claims"] == []
+        assert result["stripped_claim_count"] == 1
+
+
 def test_ask_structured_route_returns_facts_without_prose(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)  # default provider = offline stub
     resp = client.post(
         "/ask",
         json={
