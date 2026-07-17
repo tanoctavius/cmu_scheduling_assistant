@@ -141,6 +141,71 @@ button:disabled {
 }
 
 /* Chat */
+.chat {
+  margin-top: 18px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.chat-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.chat-head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.chat-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+button.example {
+  background: transparent;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  font-size: 0.8rem;
+  font-weight: 400;
+  padding: 4px 10px;
+}
+
+.chat-thread {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.bubble {
+  border-radius: 10px;
+  padding: 7px 11px;
+  font-size: 0.87rem;
+  line-height: 1.4;
+  max-width: 85%;
+}
+
+.bubble.user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: #fff;
+}
+
+.bubble.assistant {
+  align-self: flex-start;
+  background: #f0f0f2;
+}
+
 .chat-form {
   display: flex;
   gap: 8px;
@@ -149,10 +214,6 @@ button:disabled {
 .chat-form input {
   flex: 1;
   margin-top: 0;
-}
-
-.route-line {
-  margin-top: 14px;
 }
 
 /* Results */
@@ -291,14 +352,56 @@ button.ghost {
   border-radius: 8px;
 }
 
+/* Right-hand panel: rationale + confirmations */
+.workspace-panel {
+  position: sticky;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rationale-panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #fbfbfc;
+}
+
+.rationale-panel h3 {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+}
+
+.rationale-summary {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.panel-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: 12px 0 0;
+}
+
+.constraint-row {
+  margin-top: 12px;
+}
+
+.chip.constraint {
+  background: #f0ecfa;
+  color: #5a3fa8;
+}
+
 /* Confirmation panel */
 .confirm-panel {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 12px 14px;
   background: #fbfbfc;
-  position: sticky;
-  top: 12px;
 }
 
 .confirm-panel h3 {

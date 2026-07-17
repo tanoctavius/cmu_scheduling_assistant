@@ -44,6 +44,31 @@ _Interval = tuple[str, int, int]
 
 DEFAULT_K = 5
 
+# A schedule's identity: the set of course sections it contains, at their times.
+_SectionKey = tuple[str, str, tuple[str, ...], str, str]
+
+
+def schedule_key(sections: Iterable[Section]) -> tuple[_SectionKey, ...]:
+    """Identity of a schedule: its set of course sections, at their times.
+
+    Two schedules with the same key are the same option as far as a student is
+    concerned — same courses, same sections, same meeting times — regardless of
+    the order the DFS happened to build them in. Sorted so the key is
+    order-independent.
+    """
+    return tuple(
+        sorted(
+            (
+                s.course_num,
+                s.section_id,
+                tuple(s.days),
+                s.begin.isoformat(),
+                s.end.isoformat(),
+            )
+            for s in sections
+        )
+    )
+
 
 def _minutes(value) -> int:
     return value.hour * 60 + value.minute
@@ -147,10 +172,22 @@ def solve(
     heap: list[tuple[float, int, Schedule]] = []
     seq = 0  # tiebreaker so Schedules are never compared directly
 
+    # Dedupe at the source. The DFS reaches the same section set by many paths —
+    # every "skip the next course" step re-offers the identical `chosen` list — so
+    # without this the top-K heap fills with copies of one schedule and the student
+    # is shown K indistinguishable "options". Keyed on the section set, a given key
+    # always has the same score/units/workload (the score is additive over the
+    # chosen courses), so the first offer is as good as any later one.
+    seen: set[tuple[_SectionKey, ...]] = set()
+
     def consider(
         chosen: list[Section], score: float, units: float, workload: float
     ) -> None:
         nonlocal seq
+        key = schedule_key(chosen)
+        if key in seen:
+            return
+        seen.add(key)
         sched = Schedule(
             sections=list(chosen),
             total_units=units,

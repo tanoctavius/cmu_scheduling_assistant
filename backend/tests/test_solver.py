@@ -11,7 +11,7 @@ from datetime import time
 
 from app.models import Course, Section, StudentProfile, TimeBlock
 from app.ranking import W_RATING, W_WORKLOAD, course_value, schedule_score
-from app.solver import solve
+from app.solver import schedule_key, solve
 
 DAYS = ["M", "T", "W", "R", "F"]
 
@@ -145,6 +145,90 @@ def test_at_most_one_section_per_course():
         for sched in solve(courses, profile, units_cap=cap, k=5):
             nums = sched.course_nums
             assert len(nums) == len(set(nums)), "a course appears twice"
+
+
+def test_no_two_returned_schedules_are_identical():
+    # Regression: the DFS reaches the same section set by many paths (every
+    # "skip this course" step re-offers the identical `chosen` list), which used
+    # to fill the top-K heap with copies — the student saw K indistinguishable
+    # "options". Every returned option must be materially distinct.
+    rng = random.Random(11)
+    for _ in range(200):
+        courses, profile, commitments, units_cap = _rand_scenario(rng)
+        schedules = solve(
+            courses, profile, units_cap=units_cap, commitments=commitments, k=5
+        )
+        keys = [schedule_key(s.sections) for s in schedules]
+        assert len(keys) == len(set(keys)), "duplicate schedule returned"
+
+
+def _course_at(num, day, hour) -> Course:
+    """A one-section course at a non-overlapping time, so combinations are feasible."""
+    return Course(
+        course_num=num,
+        title=f"Course {num}",
+        units=9.0,
+        prereqs=None,
+        description="x",
+        fce_workload_hours=8.0,
+        fce_rating=4.0,
+        sections=[
+            Section(
+                course_num=num, title=f"Course {num}", units=9.0, section_id="A",
+                days=[day], begin=time(hour, 0), end=time(hour, 50), location="X",
+            )
+        ],
+    )
+
+
+def test_every_returned_option_is_a_distinct_section_set():
+    # Three mutually compatible courses: the DFS reaches each subset by several
+    # routes (skip-vs-take orderings). Deduping at the source means the K slots
+    # hold K genuinely different section sets — all 8 subsets — rather than being
+    # wasted on copies of the best one.
+    courses = [
+        _course_at("10-101", "M", 9),
+        _course_at("10-102", "T", 11),
+        _course_at("10-103", "W", 14),
+    ]
+    profile = StudentProfile(major="CS", expected_grad="2027")
+    schedules = solve(courses, profile, units_cap=100.0, k=8)
+
+    keys = [schedule_key(s.sections) for s in schedules]
+    assert len(keys) == len(set(keys))
+    # 2^3 subsets of three non-conflicting courses, each a distinct option.
+    assert len(keys) == 8
+
+
+def test_dedup_keys_on_times_not_just_course_numbers():
+    # Same course, two sections at different times = two *distinct* options, per
+    # "the same set of course sections at the same times".
+    course = Course(
+        course_num="10-200",
+        title="Two Sections",
+        units=9.0,
+        prereqs=None,
+        description="x",
+        fce_workload_hours=8.0,
+        fce_rating=4.0,
+        sections=[
+            Section(
+                course_num="10-200", title="Two Sections", units=9.0, section_id="A",
+                days=["M"], begin=time(9, 0), end=time(9, 50), location="X",
+            ),
+            Section(
+                course_num="10-200", title="Two Sections", units=9.0, section_id="B",
+                days=["M"], begin=time(14, 0), end=time(14, 50), location="X",
+            ),
+        ],
+    )
+    profile = StudentProfile(major="CS", expected_grad="2027")
+    schedules = solve([course], profile, units_cap=100.0, k=5)
+
+    keys = [schedule_key(s.sections) for s in schedules]
+    assert len(keys) == len(set(keys))
+    # Empty + section A + section B: the two sections are not collapsed together.
+    assert len(schedules) == 3
 
 
 def test_non_positive_k_returns_empty():

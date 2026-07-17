@@ -111,51 +111,127 @@ def extract_facts(messages: list[Message]) -> dict:
 # --- stub: deterministic, offline, no key ------------------------------------
 
 
-class StubProvider:
-    """Deterministic all-true response built from the embedded facts.
+# Keyword tables for the stub's tiny, deterministic stand-in for language
+# understanding. A real provider does this semantically; the stub only has to be
+# good enough that the app is demoable and testable with no key.
+_MODIFY_WORDS = (
+    "swap", "change", "move", "drop", "remove", "without", "avoid", "lighter",
+    "heavier", "easier", "harder", "prioritize", "prefer", "instead", "add ",
+    "free up", "make it", "fewer", "less ", "more ", "reschedule", "no class",
+)
+_DAY_WORDS = {
+    "monday": "M", "mon": "M", "tuesday": "T", "tues": "T", "wednesday": "W",
+    "wed": "W", "thursday": "R", "thurs": "R", "friday": "F", "fri": "F",
+}
+_LIGHTER_WORDS = ("lighter", "less work", "easier", "fewer units", "fewer courses", "reduce")
 
-    Emits exactly the claim types the verifier checks, each true by construction,
-    so the pipeline runs end to end with no key and every claim passes the gate.
-    Makes no network call of any kind.
+
+class StubProvider:
+    """Deterministic chat turn built from the embedded facts.
+
+    Reads the ``<facts>`` block the orchestrator embedded, classifies the turn
+    with simple keyword rules, and emits claims that are true by construction — so
+    with no key the whole pipeline runs end to end and every claim passes the
+    gate. Makes no network call of any kind.
+
+    Its "understanding" is deliberately shallow. That is safe here precisely
+    because it has no authority: like every provider, it can only *propose*
+    constraints, and the deterministic solver builds the actual schedule.
     """
 
     name = "stub"
 
     def generate(self, messages: list[Message], response_schema: type[T]) -> T:
         facts = extract_facts(messages)
+        kind = facts.get("response_kind", "chat_turn")
+        if kind != "chat_turn":  # pragma: no cover - guards a future schema
+            raise ProviderError(f"StubProvider cannot build a {kind!r} response.")
 
+        message: str = str(facts.get("message", "")).lower()
         courses: list[str] = list(facts.get("courses", []))
         free: list[str] = list(facts.get("free_days", []))
         total_units = float(facts.get("total_units", 0.0))
         workload = float(facts.get("total_workload_hours", 0.0))
+        active = dict(facts.get("active_constraints") or {})
 
-        free_phrase = (
-            f" It keeps {', '.join(free)} free." if free else " It meets every weekday."
-        )
-        explanation = (
-            f"This schedule carries {total_units:g} units across "
-            f"{len(courses)} course(s): {', '.join(courses)}."
-            f"{free_phrase} There are no time conflicts, and the estimated workload "
-            f"is about {workload:g} hours/week."
-        )
+        is_modification = any(word in message for word in _MODIFY_WORDS)
 
-        claims: list[Claim] = [
-            TotalUnitsClaim(value=total_units),
-            NoConflictsClaim(),
-        ]
-        claims.extend(IncludesCourseClaim(course_num=num) for num in courses)
-        claims.extend(NoClassOnClaim(day=day) for day in free)
+        if not is_modification:
+            # Question: answer from the facts, and assert only true things.
+            free_phrase = (
+                f" It keeps {', '.join(free)} free." if free else " It meets every weekday."
+            )
+            reply = (
+                f"Your schedule carries {total_units:g} units across "
+                f"{len(courses)} course(s): {', '.join(courses) or 'none'}."
+                f"{free_phrase} There are no time conflicts, and the estimated "
+                f"workload is about {workload:g} hours/week."
+            )
+            claims: list[Claim] = [
+                TotalUnitsClaim(value=total_units),
+                NoConflictsClaim(),
+            ]
+            claims.extend(IncludesCourseClaim(course_num=num) for num in courses)
+            claims.extend(NoClassOnClaim(day=day) for day in free)
+            return response_schema.model_validate(
+                {
+                    "kind": "question",
+                    "reply": reply,
+                    "constraints": active,
+                    "claims": claims,
+                }
+            )
 
+        # Modification: accumulate onto the constraints already in effect, so
+        # follow-ups build on prior turns rather than resetting them.
+        constraints = _stub_constraints(message, active, courses, total_units)
         return response_schema.model_validate(
             {
-                "explanation": explanation,
-                "fit_rank": facts.get("fit_rank", 1),
-                "claims": claims,
-                # Confirmation questions are built deterministically upstream and
-                # passed through verbatim — never authored by a model.
-                "confirmation_questions": facts.get("confirmation_questions", []),
+                "kind": "modification",
+                "reply": (
+                    "Updated your constraints and rebuilt the schedule with the "
+                    "solver."
+                ),
+                "constraints": constraints,
+                # The schedule is about to be re-solved, so any claim about the
+                # current one would be stale. Assert nothing.
+                "claims": [],
             }
         )
+
+
+def _stub_constraints(
+    message: str, active: dict, courses: list[str], total_units: float
+) -> dict:
+    """Deterministic keyword -> constraint mapping, accumulated onto `active`."""
+    out = dict(active)
+
+    days = list(out.get("avoid_days") or [])
+    for word, day in _DAY_WORDS.items():
+        if word in message and day not in days:
+            days.append(day)
+    if days:
+        out["avoid_days"] = days
+
+    if any(word in message for word in _LIGHTER_WORDS):
+        # One course lighter than what's on screen, floored so it stays solvable.
+        current_cap = out.get("max_units") or total_units
+        out["max_units"] = max(9.0, float(current_cap) - 9.0)
+
+    if "morning" in message:
+        out["no_class_after"] = "12:00:00"
+    elif "afternoon" in message:
+        out["no_class_before"] = "12:00:00"
+
+    excluded = list(out.get("exclude_courses") or [])
+    if any(word in message for word in ("drop", "remove", "without")):
+        for course in courses:
+            if course.lower() in message and course not in excluded:
+                excluded.append(course)
+    if excluded:
+        out["exclude_courses"] = excluded
+
+    return out
 
 
 # --- groq: OpenAI-compatible HTTPS, no AWS involvement ------------------------

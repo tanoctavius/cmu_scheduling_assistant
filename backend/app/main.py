@@ -1,17 +1,23 @@
 """FastAPI application entrypoint for cmu-scheduler.
 
-Wires the deterministic core (classifier -> solver -> ranking) behind three
-endpoints. Deliberately **no LLM yet**: these return structured JSON so the whole
-pipeline is validated with no API key (project context §7 build order). The LLM
-orchestrator layers on top of this in a later stage.
+Wires the deterministic core (classifier -> solver -> ranking) behind four
+endpoints. The solver owns the calendar everywhere: no endpoint lets a model
+place, move, or invent a section.
 
 Endpoints:
-- ``POST /survey``    — foundation courses for the student's major, to tick off.
+- ``POST /survey``    — the prereq tick-off checklist for the student's major.
 - ``POST /recommend`` — classify -> solve -> rank -> top-K schedules, each with
-  per-course classification, plus a confirmation question for every *included*
-  unconfirmed course.
+  per-course classification and a **deterministic, verifier-gated rationale**,
+  plus a confirmation question for every *included* unconfirmed course. No LLM.
 - ``POST /confirm``   — apply the student's prereq answers, re-run, return updated
-  schedules. This is the cascade loop (project context §3).
+  schedules. This is the cascade loop (project context §3). No LLM.
+- ``POST /chat``      — the conversational loop. The LLM classifies the turn and
+  *proposes constraints*; the deterministic solver rebuilds the calendar from
+  them and the verifier gates every claim. See :mod:`app.orchestrator`.
+
+Statelessness: the catalog and requirements are in-memory caches built at import
+and rebuilt on every start; conversation state lives in the request/response, not
+on the server. A cold start is always clean.
 """
 
 from __future__ import annotations
@@ -24,6 +30,7 @@ from pydantic import BaseModel, Field
 
 from app.checklist import ChecklistGroup, checklist_courses
 from app.data_loader import load_courses
+from app.llm_provider import select_provider
 from app.models import (
     Course,
     Schedule,
@@ -31,12 +38,15 @@ from app.models import (
     StudentProfile,
 )
 from app.orchestrator import (
+    ChatMessage,
     ConfirmationQuestion,
+    ScheduleConstraints,
     ScheduleContext,
-    build_confirmation_questions,
-    orchestrate,
+    constraints_to_solver_inputs,
+    orchestrate_chat_turn,
 )
 from app.prereq import Classification, classify, missing_prereqs
+from app.rationale import Rationale, build_rationale
 from app.requirements import (
     GroupRef,
     RequirementsStatus,
@@ -92,6 +102,9 @@ class ScheduleOut(BaseModel):
     classifications: dict[str, Classification]
     # Unmet degree-requirement groups this schedule's courses advance.
     requirements_advanced: list[GroupRef] = Field(default_factory=list)
+    # Why this schedule was built + the verifier-approved facts about it. Powers
+    # the right-hand rationale panel. Deterministic; never LLM prose.
+    rationale: Rationale
 
 
 class RecommendResponse(BaseModel):
@@ -107,34 +120,39 @@ class ConfirmRequest(BaseModel):
     answers: dict[str, bool] = Field(default_factory=dict)
 
 
-class AskRequest(BaseModel):
+class ChatRequest(BaseModel):
     profile: StudentProfile
-    question: str
+    message: str
+    # Prereq answers from the confirmation panel (course number -> taken).
+    answers: dict[str, bool] = Field(default_factory=dict)
+    # Conversation so far, echoed by the client — the server keeps no session, so
+    # a restart mid-conversation loses nothing (Learner Lab session timer).
+    history: list[ChatMessage] = Field(default_factory=list)
+    # Constraints already in effect from earlier turns, likewise client-held.
+    constraints: ScheduleConstraints = Field(default_factory=ScheduleConstraints)
+    # Which schedule the student is looking at (index into `schedules`).
+    selected: int = 0
 
 
-class AskResult(BaseModel):
-    sections: list[Section]
-    total_units: float
-    total_workload_hours: float
-    score: float
-    classifications: dict[str, Classification]
-    fit_rank: Optional[int] = None
-    # LLM prose (semantic route only); None on the structured route.
-    explanation: Optional[str] = None
+class ChatResponse(BaseModel):
+    reply: str
+    kind: str  # "question" | "modification"
+    # The LLM_PROVIDER that answered — "stub" | "groq" | any added later.
+    llm_backend: str
+    # The calendar after this turn: unchanged for a question, re-solved for a
+    # modification. Always the solver's output, never the model's.
+    schedules: list[ScheduleOut]
+    # The constraints now in effect; the client echoes these back next turn.
+    constraints: ScheduleConstraints
+    # True when the requested constraints left nothing solvable, so we kept the
+    # previous calendar instead of showing an empty one.
+    constraints_relaxed: bool = False
     # Only claims that PASSED verification are ever included here.
     verified_claims: list[Claim] = Field(default_factory=list)
     stripped_claim_count: int = 0
     confirmation_questions: list[ConfirmationQuestion] = Field(default_factory=list)
-    requirements_advanced: list[GroupRef] = Field(default_factory=list)
-
-
-class AskResponse(BaseModel):
-    question: str
-    route: str  # "structured" | "semantic"
-    # "none" on the structured route (no LLM involved); otherwise the LLM_PROVIDER
-    # that answered — "stub" | "groq" | any provider added later.
-    llm_backend: str
-    results: list[AskResult]
+    # The conversation including this turn, for the client to send back.
+    history: list[ChatMessage] = Field(default_factory=list)
     disclaimer: str
 
 
@@ -157,23 +175,41 @@ def _solve_for(
     profile: StudentProfile,
     completed: Iterable[str],
     ruled_out: Iterable[str],
+    constraints: Optional[ScheduleConstraints] = None,
 ) -> tuple[
     list[Schedule], dict[str, Classification], set[str], set[str], RequirementsStatus
 ]:
-    """Classify the catalog and solve — the shared front half of every request path."""
+    """Classify the catalog and solve — the shared front half of every request path.
+
+    ``constraints`` (from a chat turn) are translated into the solver's ordinary
+    inputs first, so the chat gets no special code path in the solver and every
+    invariant it already guarantees still holds.
+    """
     completed_set = set(completed)
     ruled_out_set = set(ruled_out)
+    constraints = constraints or ScheduleConstraints()
 
     classifications: dict[str, Classification] = {
         c.course_num: classify(c, completed_set, ruled_out=ruled_out_set)
         for c in CATALOG
     }
 
+    units_cap, commitments, excluded = constraints_to_solver_inputs(
+        constraints,
+        base_commitments=list(profile.commitments),
+        default_units_cap=DEFAULT_UNITS_CAP,
+    )
+
     # Completed courses play two roles: they satisfy prerequisites (via `classify`
     # above, which reads `completed_set`) AND must be excluded from the schedulable
     # pool — you don't recommend a course the student has already taken. Filter them
     # out of the candidate list before solving; prereq satisfaction is unaffected.
-    candidates = [c for c in CATALOG if c.course_num not in completed_set]
+    # Chat-excluded courses ("drop 76-101") drop out of the pool the same way.
+    candidates = [
+        c
+        for c in CATALOG
+        if c.course_num not in completed_set and c.course_num not in excluded
+    ]
 
     # Degree-requirement fit as a ranking signal, layered on the FCE/interest score
     # inside the solver (not a hard filter — electives still compete).
@@ -187,8 +223,8 @@ def _solve_for(
     schedules = solve(
         candidates,
         profile,
-        units_cap=DEFAULT_UNITS_CAP,
-        commitments=profile.commitments,
+        units_cap=units_cap,
+        commitments=commitments,
         classifications=classifications,
         value_bonus=value_bonus,
         k=DEFAULT_K,
@@ -228,40 +264,37 @@ def _build_contexts(
     return contexts
 
 
-# Keyword router: structured questions (facts) go to the deterministic pipeline;
-# fuzzy questions (fit, preferences) go to the LLM. Prevents using the LLM where
-# the database is authoritative (project context §5).
-_STRUCTURED_KEYWORDS = (
-    "conflict", "unit", "prereq", "prerequisite", "requirement", "days off",
-    "day off", "free day", "how many", "what time", "when does", "which days",
-)
-_SEMANTIC_KEYWORDS = (
-    "best", "recommend", "interest", "enjoy", "like", "fun", "fit", "should i",
-    "prefer", "easier", "lighter", "harder", "manageable", "worth",
-)
-
-
-def _route_question(question: str) -> str:
-    q = question.lower()
-    structured = sum(1 for kw in _STRUCTURED_KEYWORDS if kw in q)
-    semantic = sum(1 for kw in _SEMANTIC_KEYWORDS if kw in q)
-    return "structured" if structured > semantic else "semantic"
+def _split_answers(
+    profile: StudentProfile, answers: dict[str, bool]
+) -> tuple[set[str], set[str]]:
+    """Fold prereq answers into the completed / ruled-out sets."""
+    completed = set(profile.completed_courses)
+    ruled_out: set[str] = set()
+    for course_num, taken in answers.items():
+        (completed if taken else ruled_out).add(course_num)
+    return completed, ruled_out
 
 
 def _run_recommendation(
     profile: StudentProfile,
     completed: Iterable[str],
     ruled_out: Iterable[str],
+    constraints: Optional[ScheduleConstraints] = None,
 ) -> RecommendResponse:
-    """Classify every catalog course, solve, rank, and attach confirmation questions."""
+    """Classify every catalog course, solve, rank, and attach confirmation questions.
+
+    Each schedule carries a deterministic, verifier-gated rationale — no LLM is
+    involved here, so this stays fast enough to re-run on every prereq toggle.
+    """
     schedules, classifications, completed_set, ruled_out_set, req_status = _solve_for(
-        profile, completed, ruled_out
+        profile, completed, ruled_out, constraints
     )
 
     schedule_outs: list[ScheduleOut] = []
     unconfirmed_included: dict[str, Course] = {}
-    for sched in schedules:
+    for rank, sched in enumerate(schedules, start=1):
         per_course = {s.course_num: classifications[s.course_num] for s in sched.sections}
+        advanced = _advanced_groups(sched, req_status)
         schedule_outs.append(
             ScheduleOut(
                 sections=sched.sections,
@@ -269,7 +302,10 @@ def _run_recommendation(
                 total_workload_hours=sched.total_workload_hours,
                 score=sched.score,
                 classifications=per_course,
-                requirements_advanced=_advanced_groups(sched, req_status),
+                requirements_advanced=advanced,
+                rationale=build_rationale(
+                    sched, fit_rank=rank, requirements_advanced=advanced
+                ),
             )
         )
         for section in sched.sections:
@@ -324,73 +360,89 @@ def recommend(profile: StudentProfile) -> RecommendResponse:
 @app.post("/confirm", response_model=RecommendResponse)
 def confirm(request: ConfirmRequest) -> RecommendResponse:
     """Apply prereq answers to the completed/ruled-out sets and re-run (the cascade)."""
-    completed = set(request.profile.completed_courses)
-    ruled_out: set[str] = set()
-    for course_num, taken in request.answers.items():
-        (completed if taken else ruled_out).add(course_num)
+    completed, ruled_out = _split_answers(request.profile, request.answers)
     return _run_recommendation(request.profile, completed, ruled_out)
 
 
-@app.post("/ask", response_model=AskResponse)
-def ask(request: AskRequest) -> AskResponse:
-    """Answer a question about the top schedules, routing structured vs semantic.
+@app.post("/chat", response_model=ChatResponse)
+def chat(request: ChatRequest) -> ChatResponse:
+    """One conversational turn against the current calendar.
 
-    Structured questions (units, conflicts, prereqs) are answered from the solver's
-    output with no prose. Fuzzy questions (fit, interests) go to the LLM
-    orchestrator, whose every factual claim passes the verifier before returning —
-    so no unverified claim about a schedule ever reaches the student.
+    The division of labour is the whole point:
+
+    - The **LLM** reads the conversation and decides whether this turn is a
+      question or a change request, and if it's a change, which *constraints* the
+      student is asking for. That is all it does.
+    - The **solver** rebuilds the calendar from those constraints. The model never
+      places a section or edits a schedule; a modification is just the same
+      deterministic solve with different inputs.
+    - The **verifier** checks every factual claim the model made against the real
+      schedule before any of it is shown, exactly as on every other path.
+
+    A question leaves the calendar untouched. A modification re-solves; if the
+    request turns out to be unsatisfiable, we keep the previous constraints and
+    say so rather than hand back an empty week.
     """
     profile = request.profile
-    schedules, classifications, completed, ruled_out, req_status = _solve_for(
-        profile, profile.completed_courses, ruled_out=set()
+    completed, ruled_out = _split_answers(profile, request.answers)
+
+    # The calendar as it stands — both the grounding for a question and the
+    # fallback if a requested change proves infeasible.
+    current = _run_recommendation(profile, completed, ruled_out, request.constraints)
+
+    ctx: Optional[ScheduleContext] = None
+    if current.schedules:
+        index = min(max(request.selected, 0), len(current.schedules) - 1)
+        schedules, classifications, completed_set, ruled_out_set, _ = _solve_for(
+            profile, completed, ruled_out, request.constraints
+        )
+        contexts = _build_contexts(schedules, classifications, completed_set, ruled_out_set)
+        ctx = contexts[index] if index < len(contexts) else None
+
+    turn = orchestrate_chat_turn(
+        select_provider(),
+        profile,
+        message=request.message,
+        history=request.history,
+        constraints=request.constraints,
+        ctx=ctx,
     )
-    contexts = _build_contexts(schedules, classifications, completed, ruled_out)
-    route = _route_question(request.question)
 
-    if route == "structured":
-        results = [
-            AskResult(
-                sections=ctx.schedule.sections,
-                total_units=ctx.schedule.total_units,
-                total_workload_hours=ctx.schedule.total_workload_hours,
-                score=ctx.schedule.score,
-                classifications=ctx.classifications,
-                fit_rank=rank,
-                confirmation_questions=build_confirmation_questions(ctx),
-                requirements_advanced=_advanced_groups(ctx.schedule, req_status),
-            )
-            for rank, ctx in enumerate(contexts, start=1)
-        ]
-        return AskResponse(
-            question=request.question,
-            route=route,
-            llm_backend="none",
-            results=results,
-            disclaimer=REQUIREMENTS.disclaimer,
+    result = current
+    constraints = request.constraints
+    relaxed = False
+
+    if turn.kind == "modification":
+        proposed = _run_recommendation(profile, completed, ruled_out, turn.constraints)
+        if any(s.sections for s in proposed.schedules):
+            result, constraints = proposed, turn.constraints
+        else:
+            # Unsatisfiable: keep the working calendar rather than showing nothing.
+            relaxed = True
+
+    history = [
+        *request.history,
+        ChatMessage(role="user", content=request.message),
+        ChatMessage(role="assistant", content=turn.reply),
+    ]
+
+    reply = turn.reply
+    if relaxed:
+        reply = (
+            f"{turn.reply} (I couldn't satisfy that without emptying your schedule, "
+            f"so I've kept the previous one.)"
         )
 
-    orch = orchestrate(contexts, profile, question=request.question)
-    results = []
-    for exp in orch.explanations:
-        results.append(
-            AskResult(
-                sections=exp.schedule.sections,
-                total_units=exp.schedule.total_units,
-                total_workload_hours=exp.schedule.total_workload_hours,
-                score=exp.schedule.score,
-                classifications=exp.classifications,
-                fit_rank=exp.fit_rank,
-                explanation=exp.explanation,
-                verified_claims=exp.verified_claims,
-                stripped_claim_count=len(exp.stripped_claims),
-                confirmation_questions=exp.confirmation_questions,
-                requirements_advanced=_advanced_groups(exp.schedule, req_status),
-            )
-        )
-    return AskResponse(
-        question=request.question,
-        route=route,
-        llm_backend=orch.backend,
-        results=results,
+    return ChatResponse(
+        reply=reply,
+        kind=turn.kind,
+        llm_backend=turn.backend,
+        schedules=result.schedules,
+        constraints=constraints,
+        constraints_relaxed=relaxed,
+        verified_claims=turn.verified_claims,
+        stripped_claim_count=len(turn.stripped_claims),
+        confirmation_questions=result.confirmation_questions,
+        history=history,
         disclaimer=REQUIREMENTS.disclaimer,
     )

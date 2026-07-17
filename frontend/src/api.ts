@@ -1,6 +1,8 @@
 import type {
-  AskResponse,
+  ChatMessage,
+  ChatResponse,
   RecommendResponse,
+  ScheduleConstraints,
   StudentProfile,
   SurveyResponse,
 } from "./types";
@@ -25,8 +27,19 @@ export function getSurvey(profile: StudentProfile): Promise<SurveyResponse> {
   return post<SurveyResponse>("/survey", profile);
 }
 
-export function ask(profile: StudentProfile, question: string): Promise<AskResponse> {
-  return post<AskResponse>("/ask", { profile, question });
+// One conversational turn. The LLM classifies the turn and proposes constraints;
+// the deterministic solver rebuilds the calendar and the verifier gates every
+// claim. Conversation state is client-held (`history`, `constraints`) and echoed
+// back each turn — the server keeps no session.
+export function chat(args: {
+  profile: StudentProfile;
+  message: string;
+  answers: Record<string, boolean>;
+  history: ChatMessage[];
+  constraints: ScheduleConstraints;
+  selected: number;
+}): Promise<ChatResponse> {
+  return post<ChatResponse>("/chat", args);
 }
 
 // Deterministic top-K schedules + confirmation questions (no LLM). Seeds the

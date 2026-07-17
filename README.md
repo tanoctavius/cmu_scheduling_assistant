@@ -149,12 +149,22 @@ to the verifier.
 
 Provider choice never changes what is checked. Every factual claim — whoever produced it —
 passes the deterministic [claim verifier](backend/app/verifier.py) before display; failed
-claims are stripped. Behavior is identical across providers: interest questions route to
-semantic retrieval, the LLM only ever describes schedulable (eligible/unconfirmed, never
-blocked or completed) courses the solver already produced, and unconfirmed prereqs surface as
-confirmation controls in the right-hand panel. `backend/tests/test_orchestrator.py` asserts
-this by feeding the *same* false claim through two different providers and requiring both to
-be caught.
+claims are stripped. Behavior is identical across providers: the LLM only ever describes
+schedulable (eligible/unconfirmed, never blocked or completed) courses the solver already
+produced, and unconfirmed prereqs surface as confirmation controls in the right-hand panel.
+`backend/tests/test_orchestrator.py` asserts this by feeding the *same* false claim through
+two different providers and requiring both to be caught.
+
+The LLM's authority is narrower still in the chat (`/chat`). It does exactly two things:
+classify the turn (question or change request) and, for a change, fill a **closed
+`ScheduleConstraints` vocabulary** — avoid these days, cap units here, no class before/after,
+drop this course. Those constraints are translated into the solver's existing inputs (a units
+cap, commitment blocks, an exclusion set) and the **solver** builds the calendar. There is no
+field in which a model can express "put 15-213 here", so it cannot hand-edit a schedule or
+invent a section; the worst a bad proposal can do is produce a valid schedule you didn't ask
+for. The rationale panel is LLM-free entirely — it is derived from the solved schedule and
+gated by the verifier (`backend/app/rationale.py`), so it costs no API call and reads the same
+under every provider.
 
 ## Other tasks
 

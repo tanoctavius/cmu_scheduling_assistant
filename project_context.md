@@ -134,6 +134,11 @@ Six layers, top (ingestion) to bottom (interface):
 3. **Query router** — sends structured questions (requirements, prereqs, conflicts) to the
    database; sends only fuzzy questions (interests, review tone) to semantic retrieval.
    This prevents using vector search where it would give confident-but-wrong answers.
+   *As built*, the chat router (`/chat`) classifies a turn as **question** or
+   **modification** instead: a question is answered from the solved schedule's verified
+   facts, and a modification is turned into structured constraints and handed to the solver.
+   The principle is the same one — never let the model answer where the deterministic core
+   is authoritative.
 4. **Fused solver (classify + solve + rank)** — deterministic. Classifies each course
    eligible/unconfirmed/blocked, then branch-and-bound solves and ranks to the **top-K**
    feasible schedules. Does *not* enumerate all schedules (recitations explode the space);

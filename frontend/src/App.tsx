@@ -1,10 +1,9 @@
 import { useState } from "react";
-import { ask, getSurvey } from "./api";
-import { ChatBox } from "./components/ChatBox";
+import { getSurvey } from "./api";
 import { PrereqChecklist } from "./components/PrereqChecklist";
 import { SchedulePanel } from "./components/SchedulePanel";
 import { SurveyForm } from "./components/SurveyForm";
-import type { AskResponse, ChecklistGroup, StudentProfile } from "./types";
+import type { ChecklistGroup, StudentProfile } from "./types";
 
 export default function App() {
   const [profile, setProfile] = useState<StudentProfile | null>(null);
@@ -36,18 +35,12 @@ export default function App() {
     });
   }
 
-  // The profile handed to /ask carries the confirmed completed set.
-  function handleAsk(question: string): Promise<AskResponse> {
-    if (!profile) return Promise.reject(new Error("No profile yet."));
-    return ask({ ...profile, completed_courses: [...completed] }, question);
-  }
-
   return (
     <div className="page">
       <header>
         <h1>CMU Scheduler</h1>
         <p className="muted">
-          Conflict-free, requirement-satisfying schedules — explained and verified.
+          Conflict-free, requirement-satisfying schedules [explained and verified].
         </p>
       </header>
 
@@ -66,7 +59,6 @@ export default function App() {
           </div>
           <div className="col-right">
             <SchedulePanel profile={profile} completed={completed} />
-            <ChatBox onAsk={handleAsk} />
           </div>
         </div>
       )}

@@ -1,11 +1,16 @@
 import { useState } from "react";
-import { confirm as confirmApi, recommend } from "../api";
+import { chat, confirm as confirmApi, recommend } from "../api";
 import type {
+  ChatMessage,
   ConfirmationQuestion,
+  ScheduleConstraints,
   ScheduleOut,
   StudentProfile,
 } from "../types";
+import { EMPTY_CONSTRAINTS } from "../types";
+import { ChatThread } from "./ChatThread";
 import { ConfirmationPanel } from "./ConfirmationPanel";
+import { RationalePanel } from "./RationalePanel";
 import { WeekGrid } from "./WeekGrid";
 
 interface Props {
@@ -14,16 +19,26 @@ interface Props {
   completed: Set<string>;
 }
 
-// The prerequisite-confirmation workspace: the week-grid calendar with the
-// interactive confirmation panel beside it. Both are driven by the deterministic
-// endpoints — /recommend to seed, /confirm on every answer — so confirmations go
-// straight to the classifier/solver and NEVER through the LLM. Answers re-solve
-// the cascade and update the calendar in place, with a loading overlay meanwhile.
+// Part 3: the schedule workspace.
+//
+// The calendar sits beside a right-hand panel carrying (a) the rationale for the
+// selected schedule — including the verifier's green checkmarks — and (b) the
+// prerequisite confirmation controls. Below both is the chat, which can answer
+// questions about the calendar or ask for changes to it.
+//
+// Every calendar on screen is the deterministic solver's output. A chat
+// modification changes the *constraints* the solver is given and re-solves; the
+// model never edits a schedule. Conversation state (history, constraints) is held
+// here and echoed to the server, which keeps no session.
 export function SchedulePanel({ profile, completed }: Props) {
   const [schedules, setSchedules] = useState<ScheduleOut[] | null>(null);
   const [questions, setQuestions] = useState<ConfirmationQuestion[]>([]);
   const [answers, setAnswers] = useState<Record<string, boolean>>({});
   const [selected, setSelected] = useState(0);
+  const [history, setHistory] = useState<ChatMessage[]>([]);
+  const [constraints, setConstraints] = useState<ScheduleConstraints>(EMPTY_CONSTRAINTS);
+  const [lastKind, setLastKind] = useState<"question" | "modification" | null>(null);
+  const [backend, setBackend] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,13 +48,12 @@ export function SchedulePanel({ profile, completed }: Props) {
     completed_courses: [...completed],
   };
 
-  function applyResult(next: {
+  function applySchedules(next: {
     schedules: ScheduleOut[];
     confirmation_questions: ConfirmationQuestion[];
   }) {
     setSchedules(next.schedules);
     setQuestions(next.confirmation_questions);
-    // Keep the selected calendar in range as the schedule set changes.
     setSelected((s) => Math.min(s, Math.max(0, next.schedules.length - 1)));
   }
 
@@ -47,9 +61,12 @@ export function SchedulePanel({ profile, completed }: Props) {
     setBusy(true);
     setError(null);
     try {
-      applyResult(await recommend(solverProfile));
-      // A fresh build starts from a clean slate of answers.
+      applySchedules(await recommend(solverProfile));
+      // A fresh build starts from a clean slate.
       setAnswers({});
+      setHistory([]);
+      setConstraints(EMPTY_CONSTRAINTS);
+      setLastKind(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not build schedules.");
     } finally {
@@ -57,17 +74,43 @@ export function SchedulePanel({ profile, completed }: Props) {
     }
   }
 
-  // Answering a single prereq toggle: record it, then re-solve the whole cascade
-  // deterministically and swap the calendar in place.
+  // Answering a prereq toggle: record it, re-solve the cascade deterministically,
+  // and swap the calendar in place. No LLM on this path, so it stays snappy.
   async function handleAnswer(prereq: string, taken: boolean) {
     const nextAnswers = { ...answers, [prereq]: taken };
     setAnswers(nextAnswers);
     setBusy(true);
     setError(null);
     try {
-      applyResult(await confirmApi(solverProfile, nextAnswers));
+      applySchedules(await confirmApi(solverProfile, nextAnswers));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not re-solve.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSend(message: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await chat({
+        profile: solverProfile,
+        message,
+        answers,
+        history,
+        constraints,
+        selected,
+      });
+      setHistory(res.history);
+      setConstraints(res.constraints);
+      setLastKind(res.kind);
+      setBackend(res.llm_backend);
+      // A question returns the calendar unchanged; a modification returns the
+      // re-solved one. Either way this is the solver's output.
+      applySchedules(res);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Chat request failed.");
     } finally {
       setBusy(false);
     }
@@ -79,7 +122,7 @@ export function SchedulePanel({ profile, completed }: Props) {
         <h2>3 · Build your schedule</h2>
         <p className="muted">
           Generate conflict-free schedules from the courses you've ticked, then
-          confirm prerequisites to unlock more.
+          confirm prerequisites and refine by chatting.
         </p>
         {error && <p className="error">{error}</p>}
         <button type="button" onClick={build} disabled={busy}>
@@ -89,23 +132,40 @@ export function SchedulePanel({ profile, completed }: Props) {
     );
   }
 
-  const active = schedules[selected];
+  const active = schedules[selected] ?? null;
+  const constraintSummary = [
+    constraints.avoid_days.length > 0 && `no class ${constraints.avoid_days.join("/")}`,
+    constraints.max_units != null && `≤ ${constraints.max_units} units`,
+    constraints.no_class_before && `not before ${constraints.no_class_before.slice(0, 5)}`,
+    constraints.no_class_after && `not after ${constraints.no_class_after.slice(0, 5)}`,
+    constraints.exclude_courses.length > 0 && `without ${constraints.exclude_courses.join(", ")}`,
+  ].filter(Boolean) as string[];
 
   return (
     <div className="card">
       <div className="panel-head">
-        <h2>3 · Schedule &amp; prerequisites</h2>
+        <h2>3 · Your schedule</h2>
         <button type="button" className="ghost" onClick={build} disabled={busy}>
-          Rebuild
+          Reset
         </button>
       </div>
 
       {error && <p className="error">{error}</p>}
 
+      {constraintSummary.length > 0 && (
+        <div className="claims constraint-row">
+          {constraintSummary.map((c) => (
+            <span className="chip constraint" key={c} title="Applied by the solver">
+              {c}
+            </span>
+          ))}
+        </div>
+      )}
+
       {schedules.length === 0 ? (
         <p className="muted">
-          No conflict-free schedule fits those answers. Try changing a prerequisite
-          answer above, or rebuild.
+          No conflict-free schedule fits the current answers and constraints. Try
+          resetting, or ask for something less restrictive.
         </p>
       ) : (
         <div className="workspace">
@@ -143,6 +203,8 @@ export function SchedulePanel({ profile, completed }: Props) {
           </div>
 
           <div className="workspace-panel">
+            {/* Rationale re-renders from `active`, so it follows the selection. */}
+            <RationalePanel schedule={active} />
             <ConfirmationPanel
               questions={questions}
               answers={answers}
@@ -152,6 +214,14 @@ export function SchedulePanel({ profile, completed }: Props) {
           </div>
         </div>
       )}
+
+      <ChatThread
+        history={history}
+        onSend={handleSend}
+        busy={busy}
+        lastKind={lastKind}
+        backend={backend}
+      />
     </div>
   );
 }

@@ -208,17 +208,6 @@ def test_completed_requirement_course_never_recommended():
     assert body["disclaimer"]
 
 
-def test_completed_course_excluded_from_ask_schedules(monkeypatch):
-    # The same exclusion holds on the /ask path (shared _solve_for).
-    monkeypatch.delenv("LLM_PROVIDER", raising=False)  # default provider = offline stub
-    profile = _cs_profile(completed_courses=["15-112"], interests=["machine learning"])
-    body = client.post(
-        "/ask", json={"profile": profile, "question": "What's the best fit for me?"}
-    ).json()
-    for result in body["results"]:
-        assert "15-112" not in {s["course_num"] for s in result["sections"]}
-
-
 def test_confirm_no_answer_ruled_out_does_not_crash_and_excludes_blocked():
     # Answering "no" to a prereq rules it out; a course whose only prereq is ruled
     # out becomes blocked and must not appear in any schedule.
@@ -232,51 +221,133 @@ def test_confirm_no_answer_ruled_out_does_not_crash_and_excludes_blocked():
     assert _schedule_state_for(after, "15-122") is None
 
 
-# --- /ask : LLM orchestrator (stub, no key) ----------------------------------
+# --- /chat : question vs modification, both deterministic underneath ----------
 
 
-def test_ask_semantic_uses_stub_and_all_claims_verify(monkeypatch):
-    # No API key -> deterministic stub backend; every returned claim must verify.
+def _chat(message: str, **kwargs) -> dict:
+    payload = {"profile": _cs_profile(interests=["machine learning"]), "message": message}
+    payload.update(kwargs)
+    resp = client.post("/chat", json=payload)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _courses_of(body: dict, index: int = 0) -> list[str]:
+    return [s["course_num"] for s in body["schedules"][index]["sections"]]
+
+
+def _days_used(body: dict, index: int = 0) -> set[str]:
+    return {d for s in body["schedules"][index]["sections"] for d in s["days"]}
+
+
+def test_chat_question_returns_verified_info_without_changing_the_schedule(monkeypatch):
+    # A question is answered from the verified schedule data and must leave the
+    # calendar exactly as it was — no silent re-solve.
     monkeypatch.delenv("LLM_PROVIDER", raising=False)  # default provider = offline stub
-    resp = client.post(
-        "/ask",
-        json={
-            "profile": _cs_profile(interests=["machine learning"]),
-            "question": "Which of these schedules best fits my interests?",
-        },
-    )
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["route"] == "semantic"
+    before = client.post("/recommend", json=_cs_profile(interests=["machine learning"])).json()
+
+    body = _chat("what's my workload?")
+
+    assert body["kind"] == "question"
     assert body["llm_backend"] == "stub"
-    assert body["results"]
+    assert body["reply"]
+    # The schedule is untouched.
+    assert _courses_of(body) == [s["course_num"] for s in before["schedules"][0]["sections"]]
+    assert body["constraints_relaxed"] is False
 
-    for result in body["results"]:
-        assert result["explanation"]  # prose present on the semantic route
-        assert result["stripped_claim_count"] == 0  # stub is truthful
-        # Every returned claim is a real, schema-valid claim about the schedule.
-        for claim in result["verified_claims"]:
-            assert claim["type"] in {
-                "no_class_on", "total_units", "includes_course", "no_conflicts"
-            }
-        units_claims = [c for c in result["verified_claims"] if c["type"] == "total_units"]
-        assert units_claims and units_claims[0]["value"] == result["total_units"]
+    # The answer is grounded: every claim shown passed the verifier, and the unit
+    # figure it quotes is the schedule's real one.
+    assert body["stripped_claim_count"] == 0
+    assert body["verified_claims"]
+    units = [c for c in body["verified_claims"] if c["type"] == "total_units"]
+    assert units and units[0]["value"] == body["schedules"][0]["total_units"]
 
 
-def test_ask_uses_the_provider_named_by_env_and_still_verifies(monkeypatch):
-    # Provider choice is runtime config: with LLM_PROVIDER=groq the same /ask path
-    # routes through Groq (HTTP mocked — no real key) and reports it. The verifier
-    # gate is unchanged: the false claim this "model" emits is still stripped.
+def test_chat_modification_produces_a_different_verified_conflict_free_schedule(monkeypatch):
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    before = _chat("what's my workload?")
+    assert "F" in _days_used(before)  # a Friday class exists to swap away
+
+    after = _chat("swap the Friday class")
+
+    assert after["kind"] == "modification"
+    # Genuinely different, and the request was actually honoured.
+    assert _courses_of(after) != _courses_of(before)
+    assert "F" not in _days_used(after)
+    assert after["constraints"]["avoid_days"] == ["F"]
+    assert after["constraints_relaxed"] is False
+
+    # Still a real, solver-built schedule: conflict-free, capped, verified.
+    for sched in after["schedules"]:
+        assert sched["total_units"] <= DEFAULT_UNITS_CAP
+        assert sched["rationale"]["stripped_claim_count"] == 0
+        assert any(c["type"] == "no_conflicts" for c in sched["rationale"]["verified_claims"])
+        # Independently confirm no two sections overlap on a shared day.
+        intervals = [
+            (d, s["begin"], s["end"]) for s in sched["sections"] for d in s["days"]
+        ]
+        for i, (d1, b1, e1) in enumerate(intervals):
+            for d2, b2, e2 in intervals[i + 1 :]:
+                assert not (d1 == d2 and b1 < e2 and b2 < e1), "overlap in chat result"
+
+
+def test_chat_retains_context_across_turns(monkeypatch):
+    # "now make it lighter" must build on the earlier "no Fridays", not reset it.
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    first = _chat("swap the Friday class")
+    assert first["constraints"]["avoid_days"] == ["F"]
+
+    second = _chat(
+        "now make it lighter",
+        history=first["history"],
+        constraints=first["constraints"],
+    )
+
+    # Both constraints now hold together.
+    assert second["constraints"]["avoid_days"] == ["F"]  # retained from turn 1
+    assert second["constraints"]["max_units"] is not None  # added by turn 2
+    assert "F" not in _days_used(second)
+    assert second["schedules"][0]["total_units"] < first["schedules"][0]["total_units"]
+
+    # The transcript grows by both sides of each turn.
+    assert len(first["history"]) == 2
+    assert len(second["history"]) == 4
+    assert second["history"][0]["content"] == "swap the Friday class"
+
+
+def test_chat_surfaces_confirmation_questions_for_unconfirmed_prereqs(monkeypatch):
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    body = _chat("what's my workload?", profile=_cs_profile(interests=["Imperative Computation"]))
+    # 15-122 rides along as unconfirmed, so its prereq gap becomes a panel control.
+    q = next(q for q in body["confirmation_questions"] if q["course_num"] == "15-122")
+    assert "15-112" in q["missing_prereqs"]
+
+
+def test_chat_completed_course_never_recommended(monkeypatch):
+    # The two roles of completed_courses still hold on the chat path (shared _solve_for).
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    body = _chat(
+        "what's my workload?",
+        profile=_cs_profile(completed_courses=["15-112"], interests=["machine learning"]),
+    )
+    for sched in body["schedules"]:
+        assert "15-112" not in {s["course_num"] for s in sched["sections"]}
+
+
+def test_chat_uses_the_provider_named_by_env_and_still_verifies(monkeypatch):
+    # Provider choice is runtime config: with LLM_PROVIDER=groq the chat routes
+    # through Groq (HTTP mocked — no real key). The gate is unchanged: the false
+    # claim this "model" emits is still stripped before display.
     monkeypatch.setenv("LLM_PROVIDER", "groq")
     monkeypatch.setenv("GROQ_API_KEY", "test-key-not-real")
     monkeypatch.setenv("LLM_MODEL", "test-model")
 
     content = json.dumps(
         {
-            "explanation": "A fine schedule.",
-            "fit_rank": 1,
+            "kind": "question",
+            "reply": "A fine schedule.",
+            "constraints": {},
             "claims": [{"type": "total_units", "value": 999.0}],  # FALSE
-            "confirmation_questions": [],
         }
     )
     monkeypatch.setattr(
@@ -289,36 +360,35 @@ def test_ask_uses_the_provider_named_by_env_and_still_verifies(monkeypatch):
         ),
     )
 
-    body = client.post(
-        "/ask",
-        json={
-            "profile": _cs_profile(interests=["machine learning"]),
-            "question": "Which schedule best fits my interests?",
-        },
-    ).json()
-
-    assert body["route"] == "semantic"
+    body = _chat("which schedule best fits my interests?")
     assert body["llm_backend"] == "groq"  # the selected provider answered
-    for result in body["results"]:
-        # The bogus unit total never reaches the student, exactly as with the stub.
-        assert result["verified_claims"] == []
-        assert result["stripped_claim_count"] == 1
+    assert body["verified_claims"] == []  # the bogus unit total never reaches the student
+    assert body["stripped_claim_count"] == 1
 
 
-def test_ask_structured_route_returns_facts_without_prose(monkeypatch):
-    monkeypatch.delenv("LLM_PROVIDER", raising=False)  # default provider = offline stub
-    resp = client.post(
-        "/ask",
-        json={
-            "profile": _cs_profile(),
-            "question": "How many units is each schedule and are there any conflicts?",
-        },
-    )
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["route"] == "structured"
-    assert body["llm_backend"] == "none"
-    for result in body["results"]:
-        assert result["explanation"] is None  # no LLM prose on the structured route
-        assert result["verified_claims"] == []
-        assert result["total_units"] <= DEFAULT_UNITS_CAP
+def test_chat_keeps_the_calendar_when_a_request_is_unsatisfiable(monkeypatch):
+    # Asking for the impossible must not hand back an empty week.
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    body = _chat("drop every class on monday tuesday wednesday thursday friday")
+    assert body["constraints_relaxed"] is True
+    assert any(s["sections"] for s in body["schedules"])
+    assert "kept the previous one" in body["reply"]
+
+
+# --- The rationale is a verifier output, on every path ------------------------
+
+
+def test_every_schedule_carries_a_verified_rationale():
+    body = client.post("/recommend", json=_cs_profile()).json()
+    for sched in body["schedules"]:
+        rationale = sched["rationale"]
+        assert rationale["summary"]
+        # Derived from the schedule, so nothing should ever fail its own check.
+        assert rationale["stripped_claim_count"] == 0
+        for claim in rationale["verified_claims"]:
+            assert claim["type"] in {
+                "no_class_on", "total_units", "includes_course", "no_conflicts"
+            }
+        if sched["sections"]:
+            units = [c for c in rationale["verified_claims"] if c["type"] == "total_units"]
+            assert units and units[0]["value"] == sched["total_units"]

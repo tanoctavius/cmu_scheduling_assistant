@@ -57,30 +57,17 @@ export interface GroupRef {
   name: string;
 }
 
-export interface AskResult {
-  sections: Section[];
-  total_units: number;
-  total_workload_hours: number;
-  score: number;
-  classifications: Record<string, string>;
-  fit_rank: number | null;
-  explanation: string | null;
+// Why a schedule was built, plus the facts about it that PASSED the claim
+// verifier. `verified_claims` are verifier outputs — never LLM free-text — so
+// the green checkmarks in the rationale panel are always checked facts.
+export interface Rationale {
+  summary: string;
   verified_claims: Claim[];
   stripped_claim_count: number;
-  confirmation_questions: ConfirmationQuestion[];
-  requirements_advanced: GroupRef[];
 }
 
-export interface AskResponse {
-  question: string;
-  route: string; // "structured" | "semantic"
-  llm_backend: string; // "none" | "stub" | "anthropic"
-  results: AskResult[];
-  disclaimer: string;
-}
-
-// One solved schedule as returned by the deterministic /recommend & /confirm
-// endpoints (no LLM prose — this is the classify -> solve -> rank output).
+// One solved schedule as returned by /recommend, /confirm, and /chat. Always the
+// deterministic solver's output — no model ever authors or edits this.
 export interface ScheduleOut {
   sections: Section[];
   total_units: number;
@@ -88,6 +75,7 @@ export interface ScheduleOut {
   score: number;
   classifications: Record<string, string>;
   requirements_advanced: GroupRef[];
+  rationale: Rationale;
 }
 
 // Response of the deterministic cascade endpoints. `/recommend` seeds the panel;
@@ -95,5 +83,46 @@ export interface ScheduleOut {
 export interface RecommendResponse {
   schedules: ScheduleOut[];
   confirmation_questions: ConfirmationQuestion[];
+  disclaimer: string;
+}
+
+// --- Chat --------------------------------------------------------------------
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+// The closed vocabulary of schedule changes the chat can ask the solver for.
+// The LLM may only fill these fields; it cannot place or move a section.
+export interface ScheduleConstraints {
+  avoid_days: string[];
+  max_units: number | null;
+  no_class_before: string | null;
+  no_class_after: string | null;
+  exclude_courses: string[];
+}
+
+export const EMPTY_CONSTRAINTS: ScheduleConstraints = {
+  avoid_days: [],
+  max_units: null,
+  no_class_before: null,
+  no_class_after: null,
+  exclude_courses: [],
+};
+
+export interface ChatResponse {
+  reply: string;
+  kind: "question" | "modification";
+  llm_backend: string; // "stub" | "groq" | any provider added later
+  // The calendar after this turn: unchanged for a question, re-solved for a
+  // modification. Always solver output.
+  schedules: ScheduleOut[];
+  constraints: ScheduleConstraints;
+  constraints_relaxed: boolean;
+  verified_claims: Claim[];
+  stripped_claim_count: number;
+  confirmation_questions: ConfirmationQuestion[];
+  history: ChatMessage[];
   disclaimer: string;
 }

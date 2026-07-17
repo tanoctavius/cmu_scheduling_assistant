@@ -1,12 +1,14 @@
-"""Tests for the LLM orchestrator and its verifier gate.
+"""Tests for the chat orchestrator, its verifier gate, and the chat->solver translation.
 
-Correctness-critical: the orchestrator is the only place the LLM touches the
-pipeline, and it must never let an unverified factual claim about a schedule
-reach output. Runs entirely on the deterministic stub (no API key) plus mocked
-providers that emit deliberately wrong claims.
+Correctness-critical. Two guarantees are load-bearing here:
 
-The gate is provider-independent: see ``test_wrong_claim_is_stripped_for_every_provider``
-for the same false claim being caught no matter which provider produced it.
+1. **The gate holds, for every provider.** An unverified factual claim about a
+   schedule must never reach output, no matter which provider produced it.
+2. **The model can only propose.** A chat "modification" is translated into the
+   solver's ordinary inputs (units cap, commitment blocks, exclusions) — there is
+   no path by which a model edits a calendar directly.
+
+Runs entirely on the deterministic stub plus mocked providers.
 """
 
 import json
@@ -14,13 +16,17 @@ from datetime import time
 
 import httpx
 from app.llm_provider import GroqProvider, StubProvider
-from app.models import Schedule, Section, StudentProfile
+from app.models import Schedule, Section, StudentProfile, TimeBlock
 from app.orchestrator import (
+    ALL_DAYS,
+    ChatMessage,
+    ScheduleConstraints,
     ScheduleContext,
     _facts_block,
+    build_chat_messages,
     build_confirmation_questions,
-    build_messages,
-    orchestrate,
+    constraints_to_solver_inputs,
+    orchestrate_chat_turn,
 )
 from app.verifier import (
     IncludesCourseClaim,
@@ -75,18 +81,6 @@ def test_facts_block_lists_only_given_facts():
     assert "unconfirmed 15-122: needs 15-112" in facts
 
 
-def test_build_messages_names_prior_failures_on_regeneration():
-    # The regeneration prompt must tell the provider what the verifier rejected.
-    ctx = _context()
-    result = verify([TotalUnitsClaim(value=99.0)], ctx.schedule)
-    messages = build_messages(
-        ctx, _profile(), fit_rank=1, prior_failures=result.failed_checks
-    )
-    user = next(m.content for m in messages if m.role == "user")
-    assert "failed verification" in user
-    assert "22" in user  # the corrected, true unit total is named
-
-
 def test_confirmation_question_handles_no_missing_prereqs():
     # An unconfirmed course with an empty missing list still yields a question.
     ctx = _context()
@@ -97,43 +91,166 @@ def test_confirmation_question_handles_no_missing_prereqs():
     assert "prerequisites" in q.question.lower()
 
 
-# --- Stub: valid shape, all claims verify ------------------------------------
+def test_chat_prompt_carries_conversation_and_active_constraints():
+    # Follow-ups can only build on prior turns if the prompt actually says what
+    # was already asked and what is already in effect.
+    history = [
+        ChatMessage(role="user", content="swap the Friday class"),
+        ChatMessage(role="assistant", content="Done."),
+    ]
+    messages = build_chat_messages(
+        _context(),
+        _profile(),
+        message="now make it lighter",
+        history=history,
+        constraints=ScheduleConstraints(avoid_days=["F"]),
+    )
+    user = next(m.content for m in messages if m.role == "user")
+    assert "swap the Friday class" in user  # prior turn present
+    assert "no class on F" in user  # active constraints echoed
+    assert "now make it lighter" in user  # this turn
 
 
-def test_stub_output_all_claims_pass_verification():
-    ctx = _context()
-    result = orchestrate([ctx], _profile(), provider=StubProvider())
-
-    assert result.backend == "stub"
-    (exp,) = result.explanations
-    assert exp.explanation  # non-empty prose
-    assert exp.fit_rank == 1
-    assert exp.stripped_claims == []  # nothing stripped — stub is truthful
-    assert exp.verified_claims  # some claims survived
-
-    # Independently re-verify every returned claim against the schedule.
-    recheck = verify(exp.verified_claims, exp.schedule)
-    assert recheck.all_passed
-
-    # The unconfirmed course carries a confirmation question naming its gap.
-    q = next(q for q in exp.confirmation_questions if q.course_num == "15-122")
-    assert "15-112" in q.missing_prereqs
+# --- chat -> solver translation ----------------------------------------------
 
 
-def test_stub_claims_reflect_the_schedule():
-    ctx = _context()
-    (exp,) = orchestrate([ctx], _profile(), provider=StubProvider()).explanations
-    units = next(c for c in exp.verified_claims if isinstance(c, TotalUnitsClaim))
-    assert units.value == 22.0
-    included = {c.course_num for c in exp.verified_claims if isinstance(c, IncludesCourseClaim)}
-    assert {"15-122", "15-213"} <= included
-    # Friday is free on this schedule -> a valid no_class_on claim.
-    assert any(
-        isinstance(c, NoClassOnClaim) and c.day == "F" for c in exp.verified_claims
+def test_constraints_translate_to_solver_inputs():
+    constraints = ScheduleConstraints(
+        avoid_days=["F"],
+        max_units=36.0,
+        no_class_before=time(10, 0),
+        no_class_after=time(16, 0),
+        exclude_courses=["76-101"],
+    )
+    cap, blocks, excluded = constraints_to_solver_inputs(
+        constraints, base_commitments=[], default_units_cap=54.0
     )
 
+    assert cap == 36.0
+    assert excluded == {"76-101"}
+    # Friday is blocked for the whole day.
+    friday = next(b for b in blocks if b.days == ["F"])
+    assert friday.begin == time(0, 0) and friday.end == time(23, 59)
+    # Early/late windows are blocked across every weekday.
+    early = next(b for b in blocks if b.label == "no early classes")
+    assert early.days == ALL_DAYS and early.end == time(10, 0)
+    late = next(b for b in blocks if b.label == "no late classes")
+    assert late.days == ALL_DAYS and late.begin == time(16, 0)
 
-# --- Mocked LLM emitting a WRONG claim: verifier must catch it ----------------
+
+def test_empty_constraints_preserve_prior_solver_behavior():
+    # No constraints must mean exactly the old inputs — the chat is additive.
+    base = [TimeBlock(label="job", days=["M"], begin=time(9, 0), end=time(11, 0))]
+    cap, blocks, excluded = constraints_to_solver_inputs(
+        ScheduleConstraints(), base_commitments=base, default_units_cap=54.0
+    )
+    assert cap == 54.0
+    assert blocks == base
+    assert excluded == set()
+
+
+def test_constraints_can_never_raise_the_units_cap():
+    # A student may ask for a lighter load, never for an overload past the ceiling.
+    cap, _, _ = constraints_to_solver_inputs(
+        ScheduleConstraints(max_units=999.0), base_commitments=[], default_units_cap=54.0
+    )
+    assert cap == 54.0
+
+
+def test_base_commitments_are_never_dropped():
+    # A chat constraint must not be able to schedule over the student's real life.
+    base = [TimeBlock(label="job", days=["W"], begin=time(9, 0), end=time(11, 0))]
+    _, blocks, _ = constraints_to_solver_inputs(
+        ScheduleConstraints(avoid_days=["F"]), base_commitments=base, default_units_cap=54.0
+    )
+    assert base[0] in blocks
+
+
+def test_constraints_describe_is_human_readable():
+    assert ScheduleConstraints().describe() == "no constraints"
+    described = ScheduleConstraints(avoid_days=["F"], max_units=36.0).describe()
+    assert "no class on F" in described and "36 units" in described
+
+
+# --- Stub: question turns are grounded and verified ---------------------------
+
+
+def test_stub_question_turn_claims_all_pass_verification():
+    ctx = _context()
+    turn = orchestrate_chat_turn(
+        StubProvider(),
+        _profile(),
+        message="what's my workload?",
+        history=[],
+        constraints=ScheduleConstraints(),
+        ctx=ctx,
+    )
+
+    assert turn.kind == "question"
+    assert turn.backend == "stub"
+    assert turn.reply
+    assert turn.stripped_claims == []  # the stub is truthful
+    assert turn.verified_claims
+
+    # Independently re-verify every returned claim against the schedule.
+    assert verify(turn.verified_claims, ctx.schedule).all_passed
+
+    units = next(c for c in turn.verified_claims if isinstance(c, TotalUnitsClaim))
+    assert units.value == 22.0
+    included = {
+        c.course_num for c in turn.verified_claims if isinstance(c, IncludesCourseClaim)
+    }
+    assert {"15-122", "15-213"} <= included
+    # Friday is genuinely free on this schedule.
+    assert any(isinstance(c, NoClassOnClaim) and c.day == "F" for c in turn.verified_claims)
+
+
+def test_stub_question_turn_leaves_constraints_untouched():
+    # A question must not silently re-solve the calendar.
+    active = ScheduleConstraints(avoid_days=["F"])
+    turn = orchestrate_chat_turn(
+        StubProvider(),
+        _profile(),
+        message="what's my workload?",
+        history=[],
+        constraints=active,
+        ctx=_context(),
+    )
+    assert turn.kind == "question"
+    assert turn.constraints.avoid_days == ["F"]
+
+
+def test_stub_modification_turn_accumulates_onto_prior_constraints():
+    # "now make it lighter" must not forget the earlier "no Fridays".
+    turn = orchestrate_chat_turn(
+        StubProvider(),
+        _profile(),
+        message="now make it lighter",
+        history=[ChatMessage(role="user", content="swap the Friday class")],
+        constraints=ScheduleConstraints(avoid_days=["F"]),
+        ctx=_context(),
+    )
+    assert turn.kind == "modification"
+    assert turn.constraints.avoid_days == ["F"]  # retained
+    assert turn.constraints.max_units == 13.0  # 22 units on screen, one course lighter
+    # A modification asserts nothing about the old schedule.
+    assert turn.verified_claims == []
+
+
+def test_stub_modification_turn_maps_morning_to_a_time_window():
+    turn = orchestrate_chat_turn(
+        StubProvider(),
+        _profile(),
+        message="prioritize morning classes",
+        history=[],
+        constraints=ScheduleConstraints(),
+        ctx=_context(),
+    )
+    assert turn.kind == "modification"
+    assert turn.constraints.no_class_after == time(12, 0)
+
+
+# --- The gate is provider-independent ----------------------------------------
 
 
 class _LyingLLM:
@@ -143,42 +260,15 @@ class _LyingLLM:
 
     def generate(self, messages, response_schema):
         return response_schema(
-            explanation="This schedule is 99 units and you have Tuesdays off.",
-            fit_rank=1,
+            kind="question",
+            reply="This schedule is 99 units and you have Tuesdays off.",
+            constraints=ScheduleConstraints(),
             claims=[
                 TotalUnitsClaim(value=99.0),  # FALSE: actual total is 22
                 NoClassOnClaim(day="T"),  # FALSE: 15-122 meets on Tuesday
                 IncludesCourseClaim(course_num="15-122"),  # true
             ],
-            confirmation_questions=[],
         )
-
-
-def test_wrong_llm_claim_is_stripped_and_never_returned():
-    ctx = _context()
-    result = orchestrate([ctx], _profile(), provider=_LyingLLM(), regenerate_attempts=0)
-
-    (exp,) = result.explanations
-
-    # The two false claims were caught and removed.
-    assert len(exp.stripped_claims) == 2
-    stripped_types = {type(c.claim).__name__ for c in exp.stripped_claims}
-    assert stripped_types == {"TotalUnitsClaim", "NoClassOnClaim"}
-
-    # No false claim survived into the returned, verified set.
-    assert all(not isinstance(c, TotalUnitsClaim) for c in exp.verified_claims)
-    assert all(not isinstance(c, NoClassOnClaim) for c in exp.verified_claims)
-    # The one true claim did survive.
-    assert any(
-        isinstance(c, IncludesCourseClaim) and c.course_num == "15-122"
-        for c in exp.verified_claims
-    )
-
-    # And everything that DID survive genuinely passes verification.
-    assert verify(exp.verified_claims, exp.schedule).all_passed
-
-
-# --- The gate is provider-independent ----------------------------------------
 
 
 def _lying_groq_provider(monkeypatch):
@@ -187,14 +277,14 @@ def _lying_groq_provider(monkeypatch):
     monkeypatch.setenv("LLM_MODEL", "test-model")
     body = json.dumps(
         {
-            "explanation": "This schedule is 99 units and you have Tuesdays off.",
-            "fit_rank": 1,
+            "kind": "question",
+            "reply": "This schedule is 99 units and you have Tuesdays off.",
+            "constraints": {},
             "claims": [
                 {"type": "total_units", "value": 99.0},  # FALSE
                 {"type": "no_class_on", "day": "T"},  # FALSE
                 {"type": "includes_course", "course_num": "15-122"},  # true
             ],
-            "confirmation_questions": [],
         }
     )
     monkeypatch.setattr(
@@ -203,7 +293,7 @@ def _lying_groq_provider(monkeypatch):
         lambda *a, **k: httpx.Response(
             200,
             json={"choices": [{"message": {"content": body}}]},
-            request=httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions"),
+            request=httpx.Request("POST", "https://example.invalid"),
         ),
     )
     return GroqProvider()
@@ -217,44 +307,34 @@ def test_wrong_claim_is_stripped_for_every_provider(monkeypatch):
 
     for provider in providers:
         ctx = _context()
-        (exp,) = orchestrate([ctx], _profile(), provider=provider).explanations
+        turn = orchestrate_chat_turn(
+            provider,
+            _profile(),
+            message="tell me about my schedule",
+            history=[],
+            constraints=ScheduleConstraints(),
+            ctx=ctx,
+        )
 
         # Both false claims caught, regardless of who produced them.
-        assert {type(c.claim).__name__ for c in exp.stripped_claims} == {
+        assert {type(c.claim).__name__ for c in turn.stripped_claims} == {
             "TotalUnitsClaim",
             "NoClassOnClaim",
         }, f"provider {provider.name} leaked a false claim"
         # Only the true claim survives, and it genuinely verifies.
-        assert [type(c).__name__ for c in exp.verified_claims] == ["IncludesCourseClaim"]
-        assert verify(exp.verified_claims, exp.schedule).all_passed
+        assert [type(c).__name__ for c in turn.verified_claims] == ["IncludesCourseClaim"]
+        assert verify(turn.verified_claims, ctx.schedule).all_passed
 
 
-def test_regeneration_recovers_when_backend_corrects_itself():
-    ctx = _context()
-
-    class _SelfCorrectingLLM:
-        name = "mock2"
-
-        def __init__(self):
-            self.calls = 0
-
-        def generate(self, messages, response_schema):
-            self.calls += 1
-            if self.calls == 1:
-                claims = [TotalUnitsClaim(value=99.0)]  # wrong first
-            else:
-                claims = [TotalUnitsClaim(value=22.0)]  # corrected on retry
-            return response_schema(
-                explanation="", fit_rank=1, claims=claims, confirmation_questions=[]
-            )
-
-    provider = _SelfCorrectingLLM()
-    (exp,) = orchestrate(
-        [ctx], _profile(), provider=provider, regenerate_attempts=1
-    ).explanations
-
-    assert provider.calls == 2  # regenerated once
-    assert exp.stripped_claims == []
-    assert any(
-        isinstance(c, TotalUnitsClaim) and c.value == 22.0 for c in exp.verified_claims
+def test_claims_are_not_verified_against_a_missing_schedule():
+    # With no schedule on screen there is nothing to check a claim against, so no
+    # claim may be presented as verified.
+    turn = orchestrate_chat_turn(
+        _LyingLLM(),
+        _profile(),
+        message="anything?",
+        history=[],
+        constraints=ScheduleConstraints(),
+        ctx=None,
     )
+    assert turn.verified_claims == []

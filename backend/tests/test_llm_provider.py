@@ -21,7 +21,7 @@ from app.llm_provider import (
     extract_facts,
     select_provider,
 )
-from app.orchestrator import ScheduleExplanation
+from app.orchestrator import ChatTurn
 from app.verifier import IncludesCourseClaim, NoClassOnClaim, TotalUnitsClaim
 
 
@@ -38,19 +38,14 @@ def no_network(monkeypatch):
 
 def _facts_message(**overrides) -> list[Message]:
     facts = {
-        "fit_rank": 2,
+        "response_kind": "chat_turn",
+        "message": "what's my workload?",
+        "active_constraints": {},
+        "history_turns": 0,
         "total_units": 22.0,
         "total_workload_hours": 31.0,
         "courses": ["15-122", "15-213"],
         "free_days": ["F"],
-        "confirmation_questions": [
-            {
-                "course_num": "15-122",
-                "title": "Imperative Computation",
-                "missing_prereqs": ["15-112"],
-                "question": "Have you taken 15-112?",
-            }
-        ],
     }
     facts.update(overrides)
     return [
@@ -114,11 +109,11 @@ def test_extract_facts_without_a_block_raises():
 def test_stub_needs_no_network_and_returns_correct_shape(no_network):
     # The whole point of the default: a valid, correctly-shaped response with no
     # key, no SDK, and no socket. `no_network` makes any network call an error.
-    result = StubProvider().generate(_facts_message(), ScheduleExplanation)
+    result = StubProvider().generate(_facts_message(), ChatTurn)
 
-    assert isinstance(result, ScheduleExplanation)
-    assert result.explanation  # non-empty prose
-    assert result.fit_rank == 2  # taken from the facts, not invented
+    assert isinstance(result, ChatTurn)
+    assert result.kind == "question"
+    assert result.reply  # non-empty prose
 
     # Claims are true of the facts it was given.
     units = next(c for c in result.claims if isinstance(c, TotalUnitsClaim))
@@ -127,18 +122,26 @@ def test_stub_needs_no_network_and_returns_correct_shape(no_network):
     assert included == {"15-122", "15-213"}
     assert [c.day for c in result.claims if isinstance(c, NoClassOnClaim)] == ["F"]
 
-    # Confirmation questions are passed through, never authored by the provider.
-    (q,) = result.confirmation_questions
-    assert q.course_num == "15-122"
-    assert q.missing_prereqs == ["15-112"]
-
 
 def test_stub_handles_a_schedule_with_no_free_days(no_network):
-    result = StubProvider().generate(
-        _facts_message(free_days=[]), ScheduleExplanation
-    )
-    assert "meets every weekday" in result.explanation
+    result = StubProvider().generate(_facts_message(free_days=[]), ChatTurn)
+    assert "meets every weekday" in result.reply
     assert not [c for c in result.claims if isinstance(c, NoClassOnClaim)]
+
+
+def test_stub_modification_turn_needs_no_network(no_network):
+    # The chat's change path must also work with no key and no socket.
+    result = StubProvider().generate(
+        _facts_message(message="swap the Friday class"), ChatTurn
+    )
+    assert result.kind == "modification"
+    assert result.constraints.avoid_days == ["F"]
+    assert result.claims == []  # asserts nothing about a schedule about to change
+
+
+def test_stub_rejects_an_unknown_response_kind(no_network):
+    with pytest.raises(ProviderError, match="cannot build"):
+        StubProvider().generate(_facts_message(response_kind="something_else"), ChatTurn)
 
 
 # --- groq: mocked HTTP, no real key ------------------------------------------
@@ -153,10 +156,10 @@ def _ok_response(payload: dict) -> httpx.Response:
 
 
 _VALID_PAYLOAD = {
-    "explanation": "Two courses, Friday free.",
-    "fit_rank": 1,
+    "kind": "question",
+    "reply": "Two courses, Friday free.",
+    "constraints": {},
     "claims": [{"type": "total_units", "value": 22.0}],
-    "confirmation_questions": [],
 }
 
 
@@ -188,11 +191,11 @@ def test_groq_calls_openai_compatible_endpoint_with_env_config(monkeypatch):
         return _ok_response(_VALID_PAYLOAD)
 
     monkeypatch.setattr(httpx, "post", fake_post)
-    result = GroqProvider().generate(_facts_message(), ScheduleExplanation)
+    result = GroqProvider().generate(_facts_message(), ChatTurn)
 
     # Parsed into the requested schema.
-    assert isinstance(result, ScheduleExplanation)
-    assert result.explanation == "Two courses, Friday free."
+    assert isinstance(result, ChatTurn)
+    assert result.reply == "Two courses, Friday free."
 
     # Hit Groq's OpenAI-compatible route with the env-configured model and key.
     assert seen["url"] == f"{GROQ_DEFAULT_BASE_URL}/chat/completions"
@@ -216,7 +219,7 @@ def test_groq_honours_base_url_override(monkeypatch):
         "post",
         lambda url, **kw: (seen.update({"url": url}), _ok_response(_VALID_PAYLOAD))[1],
     )
-    GroqProvider().generate(_facts_message(), ScheduleExplanation)
+    GroqProvider().generate(_facts_message(), ChatTurn)
     assert seen["url"] == "https://proxy.example.invalid/v1/chat/completions"
 
 
@@ -229,7 +232,7 @@ def test_groq_transport_failure_becomes_provider_error(monkeypatch):
 
     monkeypatch.setattr(httpx, "post", boom)
     with pytest.raises(ProviderError, match="Groq request failed"):
-        GroqProvider().generate(_facts_message(), ScheduleExplanation)
+        GroqProvider().generate(_facts_message(), ChatTurn)
 
 
 def test_groq_unparseable_output_becomes_provider_error(monkeypatch):
@@ -245,4 +248,4 @@ def test_groq_unparseable_output_becomes_provider_error(monkeypatch):
         ),
     )
     with pytest.raises(ProviderError, match="unparseable"):
-        GroqProvider().generate(_facts_message(), ScheduleExplanation)
+        GroqProvider().generate(_facts_message(), ChatTurn)
