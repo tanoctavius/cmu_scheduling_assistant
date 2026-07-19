@@ -46,6 +46,23 @@ def _facts_message(**overrides) -> list[Message]:
         "total_workload_hours": 31.0,
         "courses": ["15-122", "15-213"],
         "free_days": ["F"],
+        "sections": [
+            {
+                "course_num": "15-122",
+                "title": "Principles of Imperative Computation",
+                "days": ["T", "R"],
+                "begin": "09:30:00",
+                "end": "10:50:00",
+            },
+            {
+                "course_num": "15-213",
+                "title": "Introduction to Computer Systems",
+                "days": ["M", "W"],
+                "begin": "14:00:00",
+                "end": "15:20:00",
+            },
+        ],
+        "requirements_advanced": ["Computer Science Core"],
     }
     facts.update(overrides)
     return [
@@ -142,6 +159,164 @@ def test_stub_modification_turn_needs_no_network(no_network):
 def test_stub_rejects_an_unknown_response_kind(no_network):
     with pytest.raises(ProviderError, match="cannot build"):
         StubProvider().generate(_facts_message(response_kind="something_else"), ChatTurn)
+
+
+# --- stub: question intents ---------------------------------------------------
+#
+# Each common question intent gets a sensible, deterministic answer grounded in
+# the facts block. The claims are the same true-by-construction set every time,
+# so everything still passes the verifier downstream.
+
+
+def test_stub_workload_question_leads_with_workload(no_network):
+    result = StubProvider().generate(_facts_message(message="what's my workload?"), ChatTurn)
+    assert result.kind == "question"
+    assert "31 hours/week" in result.reply
+
+
+def test_stub_units_question_quotes_the_real_total(no_network):
+    result = StubProvider().generate(
+        _facts_message(message="how many units am I taking?"), ChatTurn
+    )
+    assert result.kind == "question"
+    assert "22 units" in result.reply
+
+
+def test_stub_why_course_question_explains_the_meeting_pattern(no_network):
+    result = StubProvider().generate(
+        _facts_message(message="why is 15-213 on monday?"), ChatTurn
+    )
+    assert result.kind == "question"  # "why" wins over the day keyword
+    assert "15-213" in result.reply
+    assert "Monday/Wednesday" in result.reply
+    assert "14:00–15:20" in result.reply
+
+
+def test_stub_why_day_question_lists_that_days_sections(no_network):
+    result = StubProvider().generate(
+        _facts_message(message="why do I have class on tuesday?"), ChatTurn
+    )
+    assert result.kind == "question"
+    assert "Tuesday" in result.reply and "15-122" in result.reply
+
+
+def test_stub_why_free_day_question_says_it_is_free(no_network):
+    result = StubProvider().generate(
+        _facts_message(message="why is friday empty?"), ChatTurn
+    )
+    assert result.kind == "question"
+    assert "no class on Friday" in result.reply
+
+
+def test_stub_requirements_question_lists_advanced_groups(no_network):
+    result = StubProvider().generate(
+        _facts_message(message="which requirements does this cover?"), ChatTurn
+    )
+    assert result.kind == "question"
+    assert "Computer Science Core" in result.reply
+
+
+def test_stub_requirements_question_with_no_groups_is_honest(no_network):
+    result = StubProvider().generate(
+        _facts_message(
+            message="which requirements does this cover?", requirements_advanced=[]
+        ),
+        ChatTurn,
+    )
+    assert "doesn't advance any" in result.reply
+
+
+def test_stub_interest_question_points_at_a_matching_course(no_network):
+    # "systems" appears in 15-213's title, so the stub can point at it truthfully.
+    result = StubProvider().generate(
+        _facts_message(message="something with systems please"), ChatTurn
+    )
+    assert result.kind == "question"
+    assert "15-213" in result.reply
+
+
+def test_stub_interest_question_without_a_match_stays_helpful(no_network):
+    result = StubProvider().generate(
+        _facts_message(message="something with graphics"), ChatTurn
+    )
+    assert result.kind == "question"
+    assert "interests" in result.reply
+
+
+# --- stub: modification intents ----------------------------------------------
+
+
+def _constraints_for(message: str, **overrides):
+    result = StubProvider().generate(_facts_message(message=message, **overrides), ChatTurn)
+    assert result.kind == "modification", message
+    assert result.claims == []  # a modification asserts nothing about the old schedule
+    return result.constraints
+
+
+def test_stub_make_it_lighter_lowers_the_units_cap(no_network):
+    constraints = _constraints_for("make it lighter")
+    assert constraints.max_units == 13.0  # 22 on screen, one 9-unit course lighter
+
+
+def test_stub_avoid_fridays_maps_to_avoid_days(no_network):
+    constraints = _constraints_for("avoid fridays")
+    assert constraints.avoid_days == ["F"]
+
+
+def test_stub_no_early_classes_maps_to_a_start_bound(no_network):
+    constraints = _constraints_for("no early classes")
+    assert constraints.no_class_before is not None
+    assert constraints.no_class_before.hour == 10
+
+
+def test_stub_prioritize_mornings_maps_to_an_end_bound(no_network):
+    constraints = _constraints_for("prioritize morning classes")
+    assert constraints.no_class_after is not None
+    assert constraints.no_class_after.hour == 12
+
+
+def test_stub_no_late_classes_maps_to_an_end_bound(no_network):
+    constraints = _constraints_for("no late classes please")
+    assert constraints.no_class_after is not None
+    assert constraints.no_class_after.hour == 17
+
+
+def test_stub_drop_course_by_number(no_network):
+    # The typed course number is excluded even without naming it any other way.
+    constraints = _constraints_for("drop 15-213")
+    assert constraints.exclude_courses == ["15-213"]
+
+
+def test_stub_lighter_topic_excludes_the_matching_course_not_the_cap(no_network):
+    # "lighter theory load" drops the theory course rather than capping units.
+    sections = [
+        {
+            "course_num": "15-251",
+            "title": "Theory of Computation",
+            "days": ["M", "W"],
+            "begin": "10:00:00",
+            "end": "11:20:00",
+        },
+        {
+            "course_num": "15-213",
+            "title": "Introduction to Computer Systems",
+            "days": ["T", "R"],
+            "begin": "14:00:00",
+            "end": "15:20:00",
+        },
+    ]
+    constraints = _constraints_for(
+        "lighter theory load", sections=sections, courses=["15-251", "15-213"]
+    )
+    assert constraints.exclude_courses == ["15-251"]
+    assert constraints.max_units is None  # topic match, so no blanket cap
+
+
+def test_stub_is_deterministic(no_network):
+    for message in ("what's my workload?", "make it lighter", "why is 15-213 on monday?"):
+        a = StubProvider().generate(_facts_message(message=message), ChatTurn)
+        b = StubProvider().generate(_facts_message(message=message), ChatTurn)
+        assert a.model_dump() == b.model_dump(), message
 
 
 # --- groq: mocked HTTP, no real key ------------------------------------------

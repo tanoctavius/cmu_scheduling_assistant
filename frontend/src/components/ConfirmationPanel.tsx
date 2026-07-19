@@ -7,6 +7,8 @@ interface Props {
   // Fired the instant a Yes/No is picked; the parent calls /confirm and re-solves.
   onAnswer: (prereq: string, taken: boolean) => void;
   busy: boolean;
+  // The prereq whose answer is currently driving a re-solve, for inline feedback.
+  pendingPrereq: string | null;
 }
 
 function requiresLine(courseNum: string, missing: string[]): string {
@@ -18,7 +20,13 @@ function requiresLine(courseNum: string, missing: string[]): string {
 // next to the calendar. Each unconfirmed recommended course lists its missing
 // prereqs with Yes/No toggles; answering immediately drives the deterministic
 // cascade re-solve (see SchedulePanel) — it never touches the LLM.
-export function ConfirmationPanel({ questions, answers, onAnswer, busy }: Props) {
+export function ConfirmationPanel({
+  questions,
+  answers,
+  onAnswer,
+  busy,
+  pendingPrereq,
+}: Props) {
   return (
     <div className="confirm-panel">
       <h3>Confirm prerequisites</h3>
@@ -40,10 +48,23 @@ export function ConfirmationPanel({ questions, answers, onAnswer, busy }: Props)
                 <div className="confirm-prereqs">
                   {q.missing_prereqs.map((prereq) => {
                     const answer = answers[prereq];
+                    const pending = pendingPrereq === prereq;
                     return (
                       <div className="confirm-prereq" key={prereq}>
-                        <span className="confirm-prereq-num">{prereq}</span>
-                        <div className="toggle-group" role="group" aria-label={prereq}>
+                        <span className="confirm-prereq-num">
+                          {prereq}
+                          {pending && (
+                            <span className="confirm-pending" role="status">
+                              {" "}
+                              re-solving…
+                            </span>
+                          )}
+                        </span>
+                        <div
+                          className="toggle-group"
+                          role="group"
+                          aria-label={`Have you taken ${prereq}?`}
+                        >
                           <button
                             type="button"
                             className={`toggle ${answer === true ? "on yes" : ""}`}

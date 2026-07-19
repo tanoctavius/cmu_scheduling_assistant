@@ -366,6 +366,70 @@ def test_chat_uses_the_provider_named_by_env_and_still_verifies(monkeypatch):
     assert body["stripped_claim_count"] == 1
 
 
+def test_chat_no_early_classes_pushes_starts_past_ten(monkeypatch):
+    # "no early classes" through the stub becomes a solver time-window; every
+    # section on the re-solved calendar genuinely starts at 10:00 or later.
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    body = _chat("no early classes")
+    assert body["kind"] == "modification"
+    assert body["constraints"]["no_class_before"] == "10:00:00"
+    assert body["schedules"] and any(s["sections"] for s in body["schedules"])
+    for sched in body["schedules"]:
+        for section in sched["sections"]:
+            assert section["begin"] >= "10:00:00"
+
+
+def test_chat_drop_course_removes_it_from_every_schedule(monkeypatch):
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    before = _chat("what's my workload?")
+    target = before["schedules"][0]["sections"][0]["course_num"]
+
+    after = _chat(f"drop {target}")
+
+    assert after["kind"] == "modification"
+    assert target in after["constraints"]["exclude_courses"]
+    assert all(
+        target not in {s["course_num"] for s in sched["sections"]}
+        for sched in after["schedules"]
+    )
+
+
+def test_chat_requirements_question_answers_without_changing_the_schedule(monkeypatch):
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    before = _chat("what's my workload?")
+    body = _chat("which requirements does this cover?")
+    assert body["kind"] == "question"
+    assert "requirement" in body["reply"].lower()
+    assert _courses_of(body) == _courses_of(before)  # calendar untouched
+    # Still fully gated: everything shown passed the verifier.
+    assert body["stripped_claim_count"] == 0
+
+
+def test_chat_why_course_question_explains_from_solver_facts(monkeypatch):
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    before = _chat("what's my workload?")
+    section = before["schedules"][0]["sections"][0]
+    day_names = {"M": "monday", "T": "tuesday", "W": "wednesday", "R": "thursday", "F": "friday"}
+    day = day_names[section["days"][0]]
+
+    body = _chat(f"why is {section['course_num']} on {day}?")
+
+    assert body["kind"] == "question"
+    assert section["course_num"] in body["reply"]
+    assert _courses_of(body) == _courses_of(before)  # a question never re-solves
+
+
+def test_chat_interest_ask_is_answered_not_misapplied(monkeypatch):
+    # An interest-shaped ask has no constraint field to fill, so it must come back
+    # as an answered question — never a bogus modification.
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    before = _chat("what's my workload?")
+    body = _chat("something with graphics")
+    assert body["kind"] == "question"
+    assert body["reply"]
+    assert _courses_of(body) == _courses_of(before)
+
+
 def test_chat_keeps_the_calendar_when_a_request_is_unsatisfiable(monkeypatch):
     # Asking for the impossible must not hand back an empty week.
     monkeypatch.delenv("LLM_PROVIDER", raising=False)
@@ -373,6 +437,80 @@ def test_chat_keeps_the_calendar_when_a_request_is_unsatisfiable(monkeypatch):
     assert body["constraints_relaxed"] is True
     assert any(s["sections"] for s in body["schedules"])
     assert "kept the previous one" in body["reply"]
+
+
+# --- Malformed model output: graceful fallback, never a crash or a leak -------
+
+
+def _rig_groq_content(monkeypatch, content: str):
+    """Route /chat through a GroqProvider whose HTTP reply is `content`."""
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.setenv("GROQ_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("LLM_MODEL", "test-model")
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": content}}]},
+            request=httpx.Request("POST", "https://example.invalid"),
+        ),
+    )
+
+
+def test_chat_malformed_model_output_falls_back_gracefully(monkeypatch):
+    # The model returns garbage instead of the ChatTurn JSON. The turn must not
+    # 500, must not change the calendar, and must show zero claims.
+    _rig_groq_content(monkeypatch, "sorry, here's an essay instead of JSON")
+
+    body = _chat("what's my workload?")
+
+    assert body["kind"] == "question"
+    assert body["verified_claims"] == []  # nothing unverified ever shown
+    assert "unchanged" in body["reply"]
+    assert any(s["sections"] for s in body["schedules"])  # calendar still served
+    assert body["constraints"] == {
+        "avoid_days": [],
+        "max_units": None,
+        "no_class_before": None,
+        "no_class_after": None,
+        "exclude_courses": [],
+    }
+
+
+def test_chat_unknown_claim_type_falls_back_not_leaks(monkeypatch):
+    # Well-formed JSON carrying a claim type outside the closed vocabulary fails
+    # schema validation -> same graceful fallback; the claim never reaches output.
+    _rig_groq_content(
+        monkeypatch,
+        json.dumps(
+            {
+                "kind": "question",
+                "reply": "You have 3 days off.",
+                "constraints": {},
+                "claims": [{"type": "days_off_count", "value": 3}],
+            }
+        ),
+    )
+
+    body = _chat("how many days off do I have?")
+
+    assert body["verified_claims"] == []
+    assert "You have 3 days off." not in body["reply"]  # unverifiable prose dropped too
+    assert any(s["sections"] for s in body["schedules"])
+
+
+def test_chat_provider_misconfiguration_falls_back_gracefully(monkeypatch):
+    # LLM_PROVIDER=groq with no key is a config error, not a 500 for the student.
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+
+    body = _chat("what's my workload?")
+
+    assert body["kind"] == "question"
+    assert body["verified_claims"] == []
+    assert any(s["sections"] for s in body["schedules"])
 
 
 # --- The rationale is a verifier output, on every path ------------------------

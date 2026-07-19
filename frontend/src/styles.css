@@ -1,12 +1,38 @@
+/* Design tokens — one place for color, spacing, and type so the UI reads as a
+   system rather than defaults. Lightweight by intent: no framework. */
 :root {
   --bg: #f7f7f8;
   --card: #ffffff;
   --border: #e2e2e6;
   --ink: #1c1c1e;
-  --muted: #6b6b70;
+  --muted: #5d5d63; /* 6.9:1 on --bg: readable at small sizes */
   --accent: #b8232f; /* CMU red */
+  --accent-ink: #9d1d28;
   --ok: #1a7f4b;
-  --warn: #9a6a00;
+  --ok-bg: #e6f4ec;
+  --info-ink: #35508a;
+  --info-bg: #eef2fb;
+  --warn: #7a5400;
+  --warn-bg: #fff6e6;
+  --warn-border: #f0d9a8;
+  --focus: #2f5fd0;
+
+  /* spacing scale */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+
+  /* type scale */
+  --t-xs: 0.72rem;
+  --t-sm: 0.8rem;
+  --t-base: 0.9rem;
+  --t-md: 0.95rem;
+  --t-lg: 1.05rem;
+
+  --radius: 8px;
+  --radius-lg: 12px;
 }
 
 * {
@@ -21,25 +47,100 @@ body {
   color: var(--ink);
 }
 
+/* One visible, consistent focus treatment for every interactive element. */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 .page {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 24px 20px 64px;
+  padding: var(--s-5) 20px 64px;
+}
+
+.page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-4);
 }
 
 header h1 {
   margin: 0;
   color: var(--accent);
+  font-size: 1.5rem;
 }
 
 .muted {
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: var(--t-base);
 }
 
 .error {
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 600;
+}
+
+.notice {
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  color: var(--warn);
+  border-radius: var(--radius);
+  padding: var(--s-2) var(--s-3);
+  font-size: var(--t-sm);
+}
+
+/* Stepper: where you are in survey → prereqs → schedule */
+.stepper {
+  display: flex;
+  gap: var(--s-4);
+  list-style: none;
+  margin: var(--s-1) 0 0;
+  padding: 0;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--t-sm);
+  color: var(--muted);
+}
+
+.step-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: var(--card);
+  font-size: var(--t-xs);
+  font-weight: 700;
+}
+
+.step.current {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.step.current .step-dot {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.step.done {
+  color: var(--ok);
+}
+
+.step.done .step-dot {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: #fff;
 }
 
 .columns {
@@ -58,20 +159,20 @@ header h1 {
 .card {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 18px 20px;
   margin-top: 20px;
 }
 
 .card h2 {
   margin-top: 0;
-  font-size: 1.05rem;
+  font-size: var(--t-lg);
 }
 
 label {
   display: block;
-  margin: 12px 0;
-  font-size: 0.9rem;
+  margin: var(--s-3) 0;
+  font-size: var(--t-base);
   font-weight: 600;
 }
 
@@ -82,8 +183,8 @@ input:not([type]),
   margin-top: 6px;
   padding: 9px 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 0.95rem;
+  border-radius: var(--radius);
+  font-size: var(--t-md);
   font-weight: 400;
 }
 
@@ -96,9 +197,9 @@ button {
   background: var(--accent);
   color: #fff;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius);
   padding: 9px 16px;
-  font-size: 0.95rem;
+  font-size: var(--t-md);
   font-weight: 600;
   cursor: pointer;
 }
@@ -114,11 +215,11 @@ button:disabled {
 }
 
 .checklist-header {
-  font-size: 0.82rem;
+  font-size: var(--t-sm);
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: var(--muted);
-  margin: 0 0 4px;
+  margin: 0 0 var(--s-1);
 }
 
 .checklist {
@@ -134,10 +235,22 @@ button:disabled {
   font-weight: 400;
   padding: 6px 0;
   border-bottom: 1px solid var(--border);
+  cursor: pointer;
 }
 
 .checklist input {
-  margin-top: 4px;
+  margin-top: var(--s-1);
+  accent-color: var(--accent);
+}
+
+.checklist-progress {
+  font-size: var(--t-sm);
+  color: var(--muted);
+  margin: var(--s-2) 0 0;
+}
+
+button.restart {
+  margin-top: var(--s-3);
 }
 
 /* Chat */
@@ -157,7 +270,7 @@ button:disabled {
 
 .chat-head h3 {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: var(--t-md);
 }
 
 .chat-examples {
@@ -171,9 +284,14 @@ button.example {
   background: transparent;
   color: var(--muted);
   border: 1px dashed var(--border);
-  font-size: 0.8rem;
+  font-size: var(--t-sm);
   font-weight: 400;
-  padding: 4px 10px;
+  padding: var(--s-1) 10px;
+}
+
+button.example:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--muted);
 }
 
 .chat-thread {
@@ -183,7 +301,7 @@ button.example {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 260px;
+  max-height: 280px;
   overflow-y: auto;
 }
 
@@ -206,9 +324,22 @@ button.example {
   background: #f0f0f2;
 }
 
+/* Whether that turn changed the calendar or only answered. */
+.turn-tag {
+  display: block;
+  margin-top: 6px;
+  font-size: var(--t-xs);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.turn-tag.changed {
+  color: var(--ok);
+}
+
 .chat-form {
   display: flex;
-  gap: 8px;
+  gap: var(--s-2);
 }
 
 .chat-form input {
@@ -228,7 +359,7 @@ button.example {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 8px;
+  margin-bottom: var(--s-2);
 }
 
 .badge {
@@ -236,7 +367,7 @@ button.example {
   color: #fff;
   border-radius: 999px;
   padding: 2px 10px;
-  font-size: 0.8rem;
+  font-size: var(--t-sm);
   font-weight: 600;
 }
 
@@ -249,34 +380,34 @@ button.example {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 12px;
+  margin-top: var(--s-2);
 }
 
 .chip {
   font-size: 0.78rem;
   border-radius: 6px;
   padding: 3px 8px;
-  background: #eef;
+  background: var(--info-bg);
 }
 
 .chip.verified {
-  background: #e6f4ec;
+  background: var(--ok-bg);
   color: var(--ok);
 }
 
 .chip.requirement {
-  background: #eef2fb;
-  color: #35508a;
+  background: var(--info-bg);
+  color: var(--info-ink);
 }
 
 .disclaimer {
-  background: #fff6e6;
-  border: 1px solid #f0d9a8;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
   color: var(--warn);
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 0.82rem;
-  margin: 12px 0;
+  border-radius: var(--radius);
+  padding: var(--s-2) var(--s-3);
+  font-size: var(--t-sm);
+  margin: var(--s-3) 0 0;
 }
 
 /* Schedule + prerequisite workspace */
@@ -299,10 +430,14 @@ button.ghost {
   font-size: 0.85rem;
 }
 
+button.ghost:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
 .workspace {
   display: grid;
   grid-template-columns: 1fr 260px;
-  gap: 16px;
+  gap: var(--s-4);
   align-items: start;
   margin-top: 14px;
 }
@@ -313,26 +448,45 @@ button.ghost {
   }
 }
 
+.option-note {
+  margin: var(--s-2) 0 0;
+}
+
 .option-tabs {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-bottom: var(--s-2);
 }
 
 .option-tab {
   background: transparent;
   color: var(--muted);
   border: 1px solid var(--border);
-  padding: 4px 10px;
-  font-size: 0.8rem;
+  padding: var(--s-1) 10px;
+  font-size: var(--t-sm);
   font-weight: 600;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.option-tab .option-tab-sub {
+  font-weight: 400;
+  font-size: var(--t-xs);
+  opacity: 0.8;
+}
+
+.option-tab:hover:not(:disabled):not(.on) {
+  color: var(--ink);
+  border-color: var(--muted);
 }
 
 .option-tab.on {
   background: var(--ink);
   color: #fff;
   border-color: var(--ink);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
 .calendar-wrap {
@@ -345,32 +499,67 @@ button.ghost {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.7);
-  color: var(--muted);
+  gap: var(--s-2);
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--ink);
   font-weight: 600;
-  font-size: 0.9rem;
-  border-radius: 8px;
+  font-size: var(--t-base);
+  border-radius: var(--radius);
+  z-index: 3;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+/* Empty / unsatisfiable state */
+.empty-state {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: var(--s-4);
+  margin-top: var(--s-3);
+}
+
+.empty-state p {
+  margin: 0 0 var(--s-2);
 }
 
 /* Right-hand panel: rationale + confirmations */
 .workspace-panel {
   position: sticky;
-  top: 12px;
+  top: var(--s-3);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--s-3);
 }
 
 .rationale-panel {
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 12px 14px;
+  padding: var(--s-3) 14px;
   background: #fbfbfc;
 }
 
 .rationale-panel h3 {
   margin: 0 0 6px;
-  font-size: 0.95rem;
+  font-size: var(--t-md);
 }
 
 .rationale-summary {
@@ -380,33 +569,50 @@ button.ghost {
 }
 
 .panel-label {
-  font-size: 0.72rem;
+  font-size: var(--t-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
-  margin: 12px 0 0;
+  font-weight: 700;
+  margin: var(--s-3) 0 0;
+}
+
+.panel-label-hint {
+  display: block;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
 }
 
 .constraint-row {
-  margin-top: 12px;
+  margin-top: var(--s-3);
+  align-items: center;
+}
+
+.constraint-row-label {
+  font-size: var(--t-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-weight: 700;
 }
 
 .chip.constraint {
   background: #f0ecfa;
-  color: #5a3fa8;
+  color: #533a9d;
 }
 
 /* Confirmation panel */
 .confirm-panel {
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 12px 14px;
+  padding: var(--s-3) 14px;
   background: #fbfbfc;
 }
 
 .confirm-panel h3 {
-  margin: 0 0 4px;
-  font-size: 0.95rem;
+  margin: 0 0 var(--s-1);
+  font-size: var(--t-md);
 }
 
 .confirm-list {
@@ -430,17 +636,23 @@ button.ghost {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin: 4px 0;
+  gap: var(--s-2);
+  margin: var(--s-1) 0;
 }
 
 .confirm-prereq-num {
   font-size: 0.85rem;
 }
 
+.confirm-pending {
+  color: var(--info-ink);
+  font-size: var(--t-xs);
+  font-weight: 600;
+}
+
 .toggle-group {
   display: flex;
-  gap: 4px;
+  gap: var(--s-1);
 }
 
 button.toggle {
@@ -448,7 +660,12 @@ button.toggle {
   color: var(--muted);
   border: 1px solid var(--border);
   padding: 3px 12px;
-  font-size: 0.8rem;
+  font-size: var(--t-sm);
+}
+
+button.toggle:hover:not(:disabled):not(.on) {
+  border-color: var(--muted);
+  color: var(--ink);
 }
 
 button.toggle.on.yes {
@@ -466,9 +683,11 @@ button.toggle.on.no {
 /* Week grid */
 .weekgrid {
   display: flex;
-  gap: 4px;
-  margin-top: 8px;
+  gap: var(--s-1);
+  margin-top: var(--s-2);
   overflow-x: auto;
+  /* Room for tooltips to escape upward without clipping. */
+  padding-top: var(--s-1);
 }
 
 .weekgrid-axis {
@@ -479,10 +698,11 @@ button.toggle.on.no {
 
 .weekgrid-hour-label {
   position: absolute;
-  right: 4px;
+  right: var(--s-1);
   transform: translateY(-50%);
   font-size: 0.7rem;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .weekgrid-day {
@@ -492,9 +712,9 @@ button.toggle.on.no {
 
 .weekgrid-day-header {
   text-align: center;
-  font-size: 0.8rem;
+  font-size: var(--t-sm);
   font-weight: 600;
-  padding-bottom: 4px;
+  padding-bottom: var(--s-1);
 }
 
 .weekgrid-day-body {
@@ -515,10 +735,85 @@ button.toggle.on.no {
   left: 3px;
   right: 3px;
   border-radius: 6px;
-  padding: 3px 5px;
-  font-size: 0.72rem;
-  overflow: hidden;
+  padding: 3px 6px;
+  font-size: var(--t-xs);
+  overflow: visible;
   display: flex;
   flex-direction: column;
-  line-height: 1.15;
+  line-height: 1.2;
+  color: var(--ink);
+  cursor: default;
+}
+
+.weekgrid-block strong {
+  font-size: 0.74rem;
+}
+
+.weekgrid-block:hover,
+.weekgrid-block:focus-visible {
+  z-index: 2;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+/* Detail card revealed on hover/focus of a block. */
+.weekgrid-tip {
+  display: none;
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  z-index: 5;
+  min-width: 190px;
+  background: var(--ink);
+  color: #fff;
+  border-radius: var(--radius);
+  padding: var(--s-2) 10px;
+  font-size: var(--t-xs);
+  line-height: 1.45;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+
+.weekgrid-tip strong {
+  display: block;
+  font-size: var(--t-sm);
+}
+
+.weekgrid-tip span {
+  display: block;
+}
+
+.weekgrid-block:hover .weekgrid-tip,
+.weekgrid-block:focus-visible .weekgrid-tip,
+.weekgrid-block:focus .weekgrid-tip {
+  display: block;
+}
+
+/* Legend: course → color, so the grid reads at a glance. */
+.weekgrid-legend {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+  padding: 0;
+  margin: var(--s-2) 0 0;
+  font-size: var(--t-sm);
+  color: var(--muted);
+}
+
+.weekgrid-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.weekgrid-legend strong {
+  color: var(--ink);
+}
+
+.legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1.5px solid;
+  flex: none;
 }

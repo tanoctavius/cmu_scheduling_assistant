@@ -5,10 +5,37 @@ import { SchedulePanel } from "./components/SchedulePanel";
 import { SurveyForm } from "./components/SurveyForm";
 import type { ChecklistGroup, StudentProfile } from "./types";
 
+// The three-part flow, in order: survey → prereq checklist → schedule workspace.
+// `Stepper` renders where the student is; the data flow underneath is unchanged.
+const STEPS = ["Survey", "Prerequisites", "Schedule"] as const;
+
+function Stepper({ current, done }: { current: number; done: boolean[] }) {
+  return (
+    <ol className="stepper" aria-label="Progress">
+      {STEPS.map((label, i) => {
+        const state = done[i] ? "done" : i === current ? "current" : "todo";
+        return (
+          <li
+            key={label}
+            className={`step ${state}`}
+            aria-current={i === current ? "step" : undefined}
+          >
+            <span className="step-dot" aria-hidden="true">
+              {done[i] ? "✓" : i + 1}
+            </span>
+            <span className="step-label">{label}</span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 export default function App() {
   const [profile, setProfile] = useState<StudentProfile | null>(null);
   const [checklist, setChecklist] = useState<ChecklistGroup[]>([]);
   const [completed, setCompleted] = useState<Set<string>>(new Set());
+  const [built, setBuilt] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,16 +62,34 @@ export default function App() {
     });
   }
 
+  function restart() {
+    setProfile(null);
+    setChecklist([]);
+    setCompleted(new Set());
+    setBuilt(false);
+    setError(null);
+  }
+
+  const current = !profile ? 0 : built ? 2 : 1;
+  const done = [profile !== null, profile !== null && built, false];
+
   return (
     <div className="page">
-      <header>
-        <h1>CMU Scheduler</h1>
-        <p className="muted">
-          Conflict-free, requirement-satisfying schedules [explained and verified].
-        </p>
+      <header className="page-head">
+        <div>
+          <h1>CMU Scheduler</h1>
+          <p className="muted">
+            Conflict-free, requirement-satisfying schedules — explained and verified.
+          </p>
+        </div>
+        <Stepper current={current} done={done} />
       </header>
 
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
 
       {!profile ? (
         <SurveyForm onSubmit={handleSurvey} busy={busy} />
@@ -56,9 +101,16 @@ export default function App() {
               completed={completed}
               onToggle={toggle}
             />
+            <button type="button" className="ghost restart" onClick={restart}>
+              ← Change survey answers
+            </button>
           </div>
           <div className="col-right">
-            <SchedulePanel profile={profile} completed={completed} />
+            <SchedulePanel
+              profile={profile}
+              completed={completed}
+              onBuiltChange={setBuilt}
+            />
           </div>
         </div>
       )}

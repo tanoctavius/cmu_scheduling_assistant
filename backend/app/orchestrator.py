@@ -76,6 +76,9 @@ class ScheduleContext(BaseModel):
     classifications: dict[str, Classification] = Field(default_factory=dict)
     # course_num -> still-missing prereqs, for the unconfirmed courses on this schedule.
     confirmation_targets: dict[str, list[str]] = Field(default_factory=dict)
+    # Names of the unmet degree-requirement groups this schedule advances, computed
+    # deterministically upstream (see main._advanced_groups). Grounding only.
+    requirements_advanced: list[str] = Field(default_factory=list)
 
 
 def build_confirmation_questions(ctx: ScheduleContext) -> list[ConfirmationQuestion]:
@@ -285,6 +288,19 @@ def build_chat_messages(
                 "total_workload_hours": ctx.schedule.total_workload_hours,
                 "courses": ctx.schedule.course_nums,
                 "free_days": free_days(ctx.schedule),
+                # Per-section facts so a provider can answer "why is X on Monday?"
+                # from solver data instead of inventing meeting times.
+                "sections": [
+                    {
+                        "course_num": s.course_num,
+                        "title": s.title,
+                        "days": list(s.days),
+                        "begin": s.begin.isoformat(),
+                        "end": s.end.isoformat(),
+                    }
+                    for s in ctx.schedule.sections
+                ],
+                "requirements_advanced": ctx.requirements_advanced,
             }
         )
 

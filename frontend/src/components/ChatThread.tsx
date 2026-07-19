@@ -14,7 +14,8 @@ const EXAMPLES = [
   "What's my workload?",
   "Swap the Friday class",
   "Make it lighter",
-  "Prioritize morning classes",
+  "No early classes",
+  "Which requirements does this cover?",
 ];
 
 // The conversational half of Part 3. Asks questions about the calendar and
@@ -34,17 +35,16 @@ export function ChatThread({ history, onSend, busy, lastKind, backend }: Props) 
   return (
     <div className="chat">
       <div className="chat-head">
-        <h3>Ask or change</h3>
+        <h3 id="chat-heading">Ask or change</h3>
         {backend && (
           <span className="muted">
             answered by <strong>{backend}</strong>
-            {lastKind && <> · {lastKind === "modification" ? "re-solved" : "no change"}</>}
           </span>
         )}
       </div>
 
       {history.length === 0 ? (
-        <div className="chat-examples">
+        <div className="chat-examples" aria-label="Example messages">
           {EXAMPLES.map((example) => (
             <button
               key={example}
@@ -58,13 +58,30 @@ export function ChatThread({ history, onSend, busy, lastKind, backend }: Props) 
           ))}
         </div>
       ) : (
-        <ul className="chat-thread">
-          {history.map((m, i) => (
-            <li key={i} className={`bubble ${m.role}`}>
-              {m.content}
+        <ul className="chat-thread" role="log" aria-live="polite" aria-labelledby="chat-heading">
+          {history.map((m, i) => {
+            const isLastAssistant = m.role === "assistant" && i === history.length - 1;
+            return (
+              <li key={i} className={`bubble ${m.role}`}>
+                {m.content}
+                {/* Say plainly whether that turn changed the calendar. */}
+                {isLastAssistant && lastKind && !busy && (
+                  <span
+                    className={`turn-tag ${lastKind === "modification" ? "changed" : ""}`}
+                  >
+                    {lastKind === "modification"
+                      ? "↻ schedule updated"
+                      : "answered — schedule unchanged"}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+          {busy && (
+            <li className="bubble assistant muted" role="status">
+              Thinking…
             </li>
-          ))}
-          {busy && <li className="bubble assistant muted">Thinking…</li>}
+          )}
         </ul>
       )}
 
@@ -73,6 +90,7 @@ export function ChatThread({ history, onSend, busy, lastKind, backend }: Props) 
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder="e.g. why is 15-213 on Mondays? · make it lighter"
+          aria-label="Ask about your schedule or request a change"
           disabled={busy}
         />
         <button type="submit" disabled={busy || !draft.trim()}>

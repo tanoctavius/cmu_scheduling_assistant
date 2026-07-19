@@ -118,12 +118,32 @@ _MODIFY_WORDS = (
     "swap", "change", "move", "drop", "remove", "without", "avoid", "lighter",
     "heavier", "easier", "harder", "prioritize", "prefer", "instead", "add ",
     "free up", "make it", "fewer", "less ", "more ", "reschedule", "no class",
+    "no early", "early class", "no late", "late class", "evening class",
 )
 _DAY_WORDS = {
     "monday": "M", "mon": "M", "tuesday": "T", "tues": "T", "wednesday": "W",
     "wed": "W", "thursday": "R", "thurs": "R", "friday": "F", "fri": "F",
 }
+_DAY_NAMES = {"M": "Monday", "T": "Tuesday", "W": "Wednesday", "R": "Thursday", "F": "Friday"}
 _LIGHTER_WORDS = ("lighter", "less work", "easier", "fewer units", "fewer courses", "reduce")
+_DROP_WORDS = ("drop", "remove", "without", "skip ")
+_REQUIREMENT_WORDS = ("requirement", "degree", "count toward", "counts toward", "coverage")
+_WORKLOAD_WORDS = ("workload", "how much work", "hours")
+_INTEREST_WORDS = ("something with", "anything with", "interested in", "i like", "more about")
+_COURSE_NUM_RE = re.compile(r"\b(\d{2}-\d{3})\b")
+
+# Title words too generic to indicate a topic; everything else in a course title
+# ("theory", "graphics", "learning", …) counts as one.
+_TITLE_STOPWORDS = {
+    "introduction", "intro", "principles", "course", "class", "classes",
+    "great", "ideas", "modern", "topics", "with", "from", "their",
+}
+
+
+def _title_topics(title: str) -> list[str]:
+    """Topic-ish words of a course title: alphabetic, >=5 chars, not generic."""
+    words = re.findall(r"[a-z]{5,}", title.lower())
+    return [w for w in words if w not in _TITLE_STOPWORDS]
 
 
 class StubProvider:
@@ -153,20 +173,26 @@ class StubProvider:
         total_units = float(facts.get("total_units", 0.0))
         workload = float(facts.get("total_workload_hours", 0.0))
         active = dict(facts.get("active_constraints") or {})
+        sections: list[dict] = list(facts.get("sections") or [])
 
-        is_modification = any(word in message for word in _MODIFY_WORDS)
+        # "Why ..." is always a question about the schedule as it stands, even
+        # when it mentions change-y words ("why did you remove 15-112?").
+        is_modification = "why" not in message and any(
+            word in message for word in _MODIFY_WORDS
+        )
 
         if not is_modification:
             # Question: answer from the facts, and assert only true things.
             free_phrase = (
                 f" It keeps {', '.join(free)} free." if free else " It meets every weekday."
             )
-            reply = (
+            base = (
                 f"Your schedule carries {total_units:g} units across "
                 f"{len(courses)} course(s): {', '.join(courses) or 'none'}."
                 f"{free_phrase} There are no time conflicts, and the estimated "
                 f"workload is about {workload:g} hours/week."
             )
+            lead = _question_lead(message, facts)
             claims: list[Claim] = [
                 TotalUnitsClaim(value=total_units),
                 NoConflictsClaim(),
@@ -176,7 +202,7 @@ class StubProvider:
             return response_schema.model_validate(
                 {
                     "kind": "question",
-                    "reply": reply,
+                    "reply": f"{lead} {base}" if lead else base,
                     "constraints": active,
                     "claims": claims,
                 }
@@ -184,7 +210,7 @@ class StubProvider:
 
         # Modification: accumulate onto the constraints already in effect, so
         # follow-ups build on prior turns rather than resetting them.
-        constraints = _stub_constraints(message, active, courses, total_units)
+        constraints = _stub_constraints(message, active, courses, total_units, sections)
         return response_schema.model_validate(
             {
                 "kind": "modification",
@@ -200,11 +226,105 @@ class StubProvider:
         )
 
 
+def _pretty_time(hms: str) -> str:
+    """"09:30:00" -> "9:30"."""
+    parts = hms.split(":")
+    return f"{int(parts[0])}:{parts[1]}" if len(parts) >= 2 else hms
+
+
+def _question_lead(message: str, facts: dict) -> str:
+    """Intent-specific opening sentence for a question turn, from the facts only.
+
+    Deterministic keyword routing over the same grounding every provider gets:
+    why-is-this-here, workload, units, requirement coverage, and interest asks.
+    Returns "" for anything else (the generic summary already answers it).
+    """
+    sections: list[dict] = list(facts.get("sections") or [])
+    total_units = float(facts.get("total_units", 0.0))
+    workload = float(facts.get("total_workload_hours", 0.0))
+    requirements: list[str] = list(facts.get("requirements_advanced") or [])
+
+    if "why" in message:
+        # "Why is 15-213 on Mondays?" — explain the section's real meeting pattern.
+        mentioned = _COURSE_NUM_RE.findall(message)
+        for section in sections:
+            if section.get("course_num") in mentioned:
+                days = "/".join(
+                    _DAY_NAMES.get(d, d) for d in section.get("days", [])
+                )
+                return (
+                    f"{section['course_num']} ({section.get('title', '')}) meets "
+                    f"{days} {_pretty_time(section.get('begin', ''))}–"
+                    f"{_pretty_time(section.get('end', ''))} — that's the section "
+                    f"the solver picked because it fits conflict-free with the "
+                    f"rest of your schedule. To move it, ask for a change (e.g. "
+                    f"'avoid {days.split('/')[0]}s')."
+                )
+        # "Why do I have class on Friday?" — list what actually meets that day.
+        for word, day in _DAY_WORDS.items():
+            if word in message:
+                on_day = [s for s in sections if day in (s.get("days") or [])]
+                if on_day:
+                    listed = ", ".join(
+                        f"{s['course_num']} ({_pretty_time(s.get('begin', ''))}–"
+                        f"{_pretty_time(s.get('end', ''))})"
+                        for s in on_day
+                    )
+                    return (
+                        f"On {_DAY_NAMES[day]} you have {listed} — those are the "
+                        f"sections the solver placed there. Ask to 'avoid "
+                        f"{_DAY_NAMES[day]}s' if you'd rather keep it free."
+                    )
+                return f"You have no class on {_DAY_NAMES[day]} — it's already free."
+
+    if any(word in message for word in _REQUIREMENT_WORDS):
+        if requirements:
+            return (
+                f"This schedule advances {len(requirements)} degree-requirement "
+                f"group(s): {', '.join(requirements)}."
+            )
+        return (
+            "This schedule doesn't advance any of the tracked degree-requirement "
+            "groups — it may still count as electives."
+        )
+
+    if any(word in message for word in _INTEREST_WORDS):
+        matched = [
+            s
+            for s in sections
+            if any(topic in message for topic in _title_topics(s.get("title", "")))
+        ]
+        if matched:
+            listed = ", ".join(f"{s['course_num']} ({s.get('title', '')})" for s in matched)
+            return f"Good news — {listed} on your current schedule already matches that."
+        return (
+            "The ranking already favors your stated interests, so the closest "
+            "fits are on top. Compare the schedule options, or ask me to drop a "
+            "course to make room for a better match."
+        )
+
+    if any(word in message for word in _WORKLOAD_WORDS):
+        return (
+            f"Expect about {workload:g} hours/week of work for these "
+            f"{total_units:g} units."
+        )
+
+    if "units" in message:
+        return f"You're taking {total_units:g} units in total."
+
+    return ""
+
+
 def _stub_constraints(
-    message: str, active: dict, courses: list[str], total_units: float
+    message: str,
+    active: dict,
+    courses: list[str],
+    total_units: float,
+    sections: Optional[list[dict]] = None,
 ) -> dict:
     """Deterministic keyword -> constraint mapping, accumulated onto `active`."""
     out = dict(active)
+    sections = sections or []
 
     days = list(out.get("avoid_days") or [])
     for word, day in _DAY_WORDS.items():
@@ -213,23 +333,47 @@ def _stub_constraints(
     if days:
         out["avoid_days"] = days
 
-    if any(word in message for word in _LIGHTER_WORDS):
-        # One course lighter than what's on screen, floored so it stays solvable.
-        current_cap = out.get("max_units") or total_units
-        out["max_units"] = max(9.0, float(current_cap) - 9.0)
-
-    if "morning" in message:
+    # Time-of-day wishes. "early" beats "morning" when both appear ("no early
+    # morning classes" means push the start later, not end by noon).
+    if "early" in message:
+        out["no_class_before"] = "10:00:00"
+    elif "morning" in message:
         out["no_class_after"] = "12:00:00"
     elif "afternoon" in message:
         out["no_class_before"] = "12:00:00"
+    if "late" in message or "evening" in message:
+        out["no_class_after"] = "17:00:00"
 
     excluded = list(out.get("exclude_courses") or [])
-    if any(word in message for word in ("drop", "remove", "without")):
+    wants_less = any(word in message for word in _LIGHTER_WORDS)
+    if any(word in message for word in _DROP_WORDS):
+        # Any course number the student typed, plus any on-screen course they named.
+        for num in _COURSE_NUM_RE.findall(message):
+            if num not in excluded:
+                excluded.append(num)
         for course in courses:
             if course.lower() in message and course not in excluded:
                 excluded.append(course)
+
+    # Topic-based asks ("lighter theory load"): drop the on-screen courses whose
+    # titles match the topic rather than capping units across the board.
+    topic_matched = False
+    if wants_less:
+        for section in sections:
+            topics = _title_topics(str(section.get("title", "")))
+            if any(topic in message for topic in topics):
+                topic_matched = True
+                num = section.get("course_num")
+                if num and num not in excluded:
+                    excluded.append(num)
+
     if excluded:
         out["exclude_courses"] = excluded
+
+    if wants_less and not topic_matched:
+        # One course lighter than what's on screen, floored so it stays solvable.
+        current_cap = out.get("max_units") or total_units
+        out["max_units"] = max(9.0, float(current_cap) - 9.0)
 
     return out
 

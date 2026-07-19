@@ -20,7 +20,13 @@ export function PrereqChecklist({ groups, completed, onToggle }: Props) {
         Tick the core courses and common prerequisites you've completed. This seeds
         your confirmed prerequisites and cuts down on follow-up questions.
       </p>
-      {total === 0 && <p className="muted">No checklist courses found.</p>}
+      {total === 0 ? (
+        <p className="muted">No checklist courses found.</p>
+      ) : (
+        <p className="checklist-progress" role="status">
+          {completed.size} of {total} ticked
+        </p>
+      )}
       {groups.map((group) => (
         <div className="checklist-group" key={group.header}>
           <h3 className="checklist-header">{group.header}</h3>

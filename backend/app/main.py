@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 
 from app.checklist import ChecklistGroup, checklist_courses
 from app.data_loader import load_courses
-from app.llm_provider import select_provider
+from app.llm_provider import ProviderError, select_provider
 from app.models import (
     Course,
     Schedule,
@@ -40,6 +40,7 @@ from app.models import (
 from app.orchestrator import (
     ChatMessage,
     ConfirmationQuestion,
+    GatedTurn,
     ScheduleConstraints,
     ScheduleContext,
     constraints_to_solver_inputs,
@@ -244,6 +245,7 @@ def _build_contexts(
     classifications: dict[str, Classification],
     completed: set[str],
     ruled_out: set[str],
+    req_status: RequirementsStatus,
 ) -> list[ScheduleContext]:
     """Package each schedule's facts for the orchestrator — the LLM invents nothing."""
     contexts: list[ScheduleContext] = []
@@ -258,7 +260,12 @@ def _build_contexts(
         }
         contexts.append(
             ScheduleContext(
-                schedule=sched, classifications=per_course, confirmation_targets=targets
+                schedule=sched,
+                classifications=per_course,
+                confirmation_targets=targets,
+                requirements_advanced=[
+                    g.name for g in _advanced_groups(sched, req_status)
+                ],
             )
         )
     return contexts
@@ -393,20 +400,41 @@ def chat(request: ChatRequest) -> ChatResponse:
     ctx: Optional[ScheduleContext] = None
     if current.schedules:
         index = min(max(request.selected, 0), len(current.schedules) - 1)
-        schedules, classifications, completed_set, ruled_out_set, _ = _solve_for(
+        schedules, classifications, completed_set, ruled_out_set, req_status = _solve_for(
             profile, completed, ruled_out, request.constraints
         )
-        contexts = _build_contexts(schedules, classifications, completed_set, ruled_out_set)
+        contexts = _build_contexts(
+            schedules, classifications, completed_set, ruled_out_set, req_status
+        )
         ctx = contexts[index] if index < len(contexts) else None
 
-    turn = orchestrate_chat_turn(
-        select_provider(),
-        profile,
-        message=request.message,
-        history=request.history,
-        constraints=request.constraints,
-        ctx=ctx,
-    )
+    # A provider that misbehaves — missing config, transport failure, or output
+    # that doesn't parse into the ChatTurn schema — must never crash the turn or
+    # leak an unverified claim. Treat it like a failed verification: no claims,
+    # constraints unchanged, calendar untouched, and an honest fallback reply.
+    backend_name = "unavailable"
+    try:
+        provider = select_provider()
+        backend_name = provider.name
+        turn = orchestrate_chat_turn(
+            provider,
+            profile,
+            message=request.message,
+            history=request.history,
+            constraints=request.constraints,
+            ctx=ctx,
+        )
+    except ProviderError:
+        turn = GatedTurn(
+            kind="question",
+            reply=(
+                "I couldn't turn the model's response into a verified answer, so "
+                "I'm not showing any claims for this turn. Your schedule is "
+                "unchanged — please try rephrasing."
+            ),
+            constraints=request.constraints,
+            backend=backend_name,
+        )
 
     result = current
     constraints = request.constraints

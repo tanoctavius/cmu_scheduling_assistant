@@ -17,7 +17,13 @@ interface Props {
   profile: StudentProfile;
   // The checklist "completed" set; seeds the profile handed to the solver.
   completed: Set<string>;
+  // Lets the page-level stepper know whether schedules are on screen.
+  onBuiltChange?: (built: boolean) => void;
 }
+
+// The solver aims for this many distinct options; fewer is a legitimate outcome
+// (the constraint space genuinely admits fewer), not an error. Mirrors DEFAULT_K.
+const TARGET_OPTIONS = 5;
 
 // Part 3: the schedule workspace.
 //
@@ -30,7 +36,7 @@ interface Props {
 // modification changes the *constraints* the solver is given and re-solves; the
 // model never edits a schedule. Conversation state (history, constraints) is held
 // here and echoed to the server, which keeps no session.
-export function SchedulePanel({ profile, completed }: Props) {
+export function SchedulePanel({ profile, completed, onBuiltChange }: Props) {
   const [schedules, setSchedules] = useState<ScheduleOut[] | null>(null);
   const [questions, setQuestions] = useState<ConfirmationQuestion[]>([]);
   const [answers, setAnswers] = useState<Record<string, boolean>>({});
@@ -39,7 +45,11 @@ export function SchedulePanel({ profile, completed }: Props) {
   const [constraints, setConstraints] = useState<ScheduleConstraints>(EMPTY_CONSTRAINTS);
   const [lastKind, setLastKind] = useState<"question" | "modification" | null>(null);
   const [backend, setBackend] = useState<string | null>(null);
+  const [disclaimer, setDisclaimer] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Which prereq toggle is driving the current re-solve, for inline feedback.
+  const [pendingPrereq, setPendingPrereq] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // The profile the solver sees carries the confirmed completed set.
@@ -51,15 +61,19 @@ export function SchedulePanel({ profile, completed }: Props) {
   function applySchedules(next: {
     schedules: ScheduleOut[];
     confirmation_questions: ConfirmationQuestion[];
+    disclaimer?: string;
   }) {
     setSchedules(next.schedules);
     setQuestions(next.confirmation_questions);
     setSelected((s) => Math.min(s, Math.max(0, next.schedules.length - 1)));
+    if (next.disclaimer) setDisclaimer(next.disclaimer);
+    onBuiltChange?.(true);
   }
 
   async function build() {
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
       applySchedules(await recommend(solverProfile));
       // A fresh build starts from a clean slate.
@@ -80,6 +94,7 @@ export function SchedulePanel({ profile, completed }: Props) {
     const nextAnswers = { ...answers, [prereq]: taken };
     setAnswers(nextAnswers);
     setBusy(true);
+    setPendingPrereq(prereq);
     setError(null);
     try {
       applySchedules(await confirmApi(solverProfile, nextAnswers));
@@ -87,12 +102,14 @@ export function SchedulePanel({ profile, completed }: Props) {
       setError(err instanceof Error ? err.message : "Could not re-solve.");
     } finally {
       setBusy(false);
+      setPendingPrereq(null);
     }
   }
 
   async function handleSend(message: string) {
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
       const res = await chat({
         profile: solverProfile,
@@ -106,6 +123,12 @@ export function SchedulePanel({ profile, completed }: Props) {
       setConstraints(res.constraints);
       setLastKind(res.kind);
       setBackend(res.llm_backend);
+      if (res.constraints_relaxed) {
+        setNotice(
+          "That request couldn't be satisfied without emptying the schedule, so " +
+            "the previous calendar was kept. Try a less restrictive change.",
+        );
+      }
       // A question returns the calendar unchanged; a modification returns the
       // re-solved one. Either way this is the solver's output.
       applySchedules(res);
@@ -124,7 +147,11 @@ export function SchedulePanel({ profile, completed }: Props) {
           Generate conflict-free schedules from the courses you've ticked, then
           confirm prerequisites and refine by chatting.
         </p>
-        {error && <p className="error">{error}</p>}
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
         <button type="button" onClick={build} disabled={busy}>
           {busy ? "Building…" : "Build schedule"}
         </button>
@@ -150,12 +177,31 @@ export function SchedulePanel({ profile, completed }: Props) {
         </button>
       </div>
 
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p className="notice" role="status">
+          {notice}
+        </p>
+      )}
 
       {constraintSummary.length > 0 && (
-        <div className="claims constraint-row">
+        <div
+          className="claims constraint-row"
+          role="list"
+          aria-label="Constraints currently applied by the solver"
+        >
+          <span className="constraint-row-label">Applied constraints:</span>
           {constraintSummary.map((c) => (
-            <span className="chip constraint" key={c} title="Applied by the solver">
+            <span
+              className="chip constraint"
+              role="listitem"
+              key={c}
+              title="From your chat requests — the solver honors these on every re-solve"
+            >
               {c}
             </span>
           ))}
@@ -163,56 +209,79 @@ export function SchedulePanel({ profile, completed }: Props) {
       )}
 
       {schedules.length === 0 ? (
-        <p className="muted">
-          No conflict-free schedule fits the current answers and constraints. Try
-          resetting, or ask for something less restrictive.
-        </p>
+        <div className="empty-state">
+          <p>
+            <strong>No conflict-free schedule fits</strong> the current answers and
+            constraints — nothing is broken, the combination is just too tight.
+          </p>
+          <p className="muted">
+            Loosen a constraint in the chat (e.g. "allow Fridays again") or press
+            Reset to start from a clean calendar.
+          </p>
+        </div>
       ) : (
-        <div className="workspace">
-          <div className="workspace-calendar">
-            {schedules.length > 1 && (
-              <div className="option-tabs" role="tablist">
-                {schedules.map((_, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    role="tab"
-                    aria-selected={i === selected}
-                    className={`option-tab ${i === selected ? "on" : ""}`}
-                    onClick={() => setSelected(i)}
-                    disabled={busy}
-                  >
-                    Option {i + 1}
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className="calendar-wrap">
-              {active && <WeekGrid sections={active.sections} />}
-              {busy && (
-                <div className="calendar-loading" role="status">
-                  Re-solving…
+        <>
+          {schedules.length < TARGET_OPTIONS && (
+            <p className="muted option-note">
+              {schedules.length === 1
+                ? "Only one distinct schedule exists"
+                : `Only ${schedules.length} distinct schedules exist`}{" "}
+              under the current constraints — that's expected when the fit is
+              tight, not an error.
+            </p>
+          )}
+          <div className="workspace">
+            <div className="workspace-calendar">
+              {schedules.length > 1 && (
+                <div
+                  className="option-tabs"
+                  role="tablist"
+                  aria-label="Schedule options, best fit first"
+                >
+                  {schedules.map((s, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      role="tab"
+                      aria-selected={i === selected}
+                      className={`option-tab ${i === selected ? "on" : ""}`}
+                      onClick={() => setSelected(i)}
+                      disabled={busy}
+                    >
+                      Option {i + 1}
+                      <span className="option-tab-sub">{s.total_units} u</span>
+                    </button>
+                  ))}
                 </div>
               )}
+              <div className="calendar-wrap">
+                {active && <WeekGrid sections={active.sections} />}
+                {busy && (
+                  <div className="calendar-loading" role="status">
+                    <span className="spinner" aria-hidden="true" /> Re-solving…
+                  </div>
+                )}
+              </div>
+              {active && (
+                <p className="muted">
+                  {active.total_units} units · ~{active.total_workload_hours} hrs/wk
+                </p>
+              )}
             </div>
-            {active && (
-              <p className="muted">
-                {active.total_units} units · ~{active.total_workload_hours} hrs/wk
-              </p>
-            )}
-          </div>
 
-          <div className="workspace-panel">
-            {/* Rationale re-renders from `active`, so it follows the selection. */}
-            <RationalePanel schedule={active} />
-            <ConfirmationPanel
-              questions={questions}
-              answers={answers}
-              onAnswer={handleAnswer}
-              busy={busy}
-            />
+            <div className="workspace-panel">
+              {/* Rationale re-renders from `active`, so it follows the selection. */}
+              <RationalePanel schedule={active} />
+              <ConfirmationPanel
+                questions={questions}
+                answers={answers}
+                onAnswer={handleAnswer}
+                busy={busy}
+                pendingPrereq={pendingPrereq}
+              />
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       <ChatThread
@@ -222,6 +291,8 @@ export function SchedulePanel({ profile, completed }: Props) {
         lastKind={lastKind}
         backend={backend}
       />
+
+      {disclaimer && <p className="disclaimer">{disclaimer}</p>}
     </div>
   );
 }

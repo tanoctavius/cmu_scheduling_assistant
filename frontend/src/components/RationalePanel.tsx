@@ -36,29 +36,45 @@ export function RationalePanel({ schedule }: Props) {
       <p className="rationale-summary">{rationale.summary}</p>
 
       {rationale.verified_claims.length > 0 && (
-        <>
-          <p className="panel-label">Verified facts</p>
-          <div className="claims">
+        <section aria-label="Verified facts">
+          <p className="panel-label">
+            ✓ Verified facts
+            <span className="panel-label-hint">checked against this schedule</span>
+          </p>
+          <div className="claims" role="list">
             {rationale.verified_claims.map((c, i) => (
-              <span className="chip verified" key={i} title="Checked by the claim verifier">
+              <span
+                className="chip verified"
+                role="listitem"
+                key={i}
+                title="Checked by the deterministic claim verifier"
+              >
                 ✓ {claimText(c)}
               </span>
             ))}
           </div>
-        </>
+        </section>
       )}
 
       {requirements_advanced.length > 0 && (
-        <>
-          <p className="panel-label">Requirement coverage</p>
-          <div className="claims">
+        <section aria-label="Requirement coverage">
+          <p className="panel-label">
+            ◆ Requirement coverage
+            <span className="panel-label-hint">degree groups this advances</span>
+          </p>
+          <div className="claims" role="list">
             {requirements_advanced.map((g) => (
-              <span className="chip requirement" key={g.id} title="Advances a degree requirement">
+              <span
+                className="chip requirement"
+                role="listitem"
+                key={g.id}
+                title="Advances a degree requirement"
+              >
                 ◆ {g.name}
               </span>
             ))}
           </div>
-        </>
+        </section>
       )}
 
       {/* Non-zero means a fact derived from this schedule failed its own check —
