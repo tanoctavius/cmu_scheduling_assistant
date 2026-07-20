@@ -40,6 +40,17 @@ commitment blocks, an exclusion set) and the **solver** builds the schedule. The
 in which a model can express "put 15-213 here." The worst a bad proposal can do is produce a
 valid schedule the student didn't ask for — never an invalid or fabricated one.
 
+Two later hardenings extend that rule to the edges. **Grounding:** every chat prompt now
+carries per-section facts (meeting days, begin/end times, titles) and the names of the
+degree-requirement groups the schedule advances — all computed deterministically upstream — so
+even "why is 15-213 on Mondays?" is answered from solver data, not model recall
+(`orchestrator.build_chat_messages`). **Failure containment:** a provider that misbehaves —
+missing config, transport failure, or output that doesn't parse into the `ChatTurn` schema —
+is treated like a failed verification: `/chat` catches `ProviderError` and returns an honest
+fallback with no claims, constraints unchanged, and the calendar untouched
+(`backend/app/main.py`). A broken model can degrade the conversation; it cannot degrade the
+schedule.
+
 ### The system as built
 
 ```mermaid
@@ -72,6 +83,7 @@ flowchart TB
         CHAT --> LLM --> CONS
     end
 
+    SOLVE -.->|"solved-schedule facts<br/>(grounding)"| LLM
     CONS -->|"re-solve with new inputs"| SOLVE
     LLM -.->|"claims, never trusted"| VER
     VER --> UI["UI · calendar + rationale + prereq confirmations"]
@@ -83,15 +95,16 @@ flowchart TB
 ```
 
 Read the arrows into `SOLVE`: **every** calendar the student ever sees comes out of that one
-box. The chat's arrow reaches it carrying *constraints*, not a schedule. The LLM's only other
-arrow is a dashed one into the verifier, which exists to throw its claims away if they are
-false.
+box. The chat's arrow reaches it carrying *constraints*, not a schedule. The dashed arrow *out*
+of the solver carries grounding facts the model may repeat but cannot alter; the LLM's only
+other arrow is a dashed one into the verifier, which exists to throw its claims away if they
+are false.
 
-> The original hand-drawn design sketch is [`architecture.svg`](architecture.svg) (by Wendy).
-> It depicts the *target* architecture — a DynamoDB catalog store, semantic retrieval, and an
-> LLM that "explains and ranks." Two of those were never built and the third has since
-> narrowed; §4 and §8 explain. The Mermaid diagram above is the **as-built** system and is the
-> authoritative one.
+> [`architecture.svg`](architecture.svg) is this same **as-built** system rendered as a
+> standalone image. It replaced Wendy's original hand-drawn sketch of the *target*
+> architecture — a DynamoDB catalog store, semantic retrieval, an LLM that "explains and
+> ranks" — which is preserved in git history (`1f4b408`); §4 and §8 explain why the design and
+> the build diverge.
 
 ### Components as built
 
@@ -105,7 +118,7 @@ false.
 | Chat turn: intent + constraint proposal | `backend/app/orchestrator.py` | **no — the only AI step** |
 | Provider abstraction (`stub` default, `groq`) | `backend/app/llm_provider.py` | n/a |
 | API | `backend/app/main.py` | — |
-| UI (survey, checklist, calendar, rationale, chat) | `frontend/src/` | yes |
+| UI (stepper flow survey → checklist → schedule workspace; calendar, rationale, chat with per-turn changed/unchanged tags) | `frontend/src/` | yes |
 
 ### The two request paths
 
@@ -127,6 +140,14 @@ survey ─▶ prereq classifier ─▶ fused solver + ranking ─▶ rationale +
 Only `POST /chat` touches a model. `/survey`, `/recommend`, and `/confirm` are fully
 deterministic — including every green ✓ checkmark in the UI, which is claim-verifier output
 derived from the solved schedule, not model prose.
+
+The `stub` provider deserves a note here: it is not a mock. On question turns it routes by
+intent — workload, units, requirement coverage, "why is 15-213 on Mondays?", "why do I have
+class on Friday?" — and answers each from the grounding facts; on modification turns it parses
+days, times of day (`early` / `late` / `evening`), drop-by-course-number, and topic-based
+requests ("lighter theory load" drops the matching course rather than capping units across the
+board). All of it is deterministic keyword routing over the same facts a real model receives,
+which is what makes the zero-key default path demoable rather than merely non-crashing.
 
 ---
 
@@ -317,19 +338,21 @@ In rough priority order — each is a real gap, not a nice-to-have:
 Accurate as of the current `main`. Verified against the repo rather than asserted:
 
 - `/recommend` and `/confirm` return complete rationales with `select_provider` rigged to raise —
-  they invoke no model. The only provider call site is inside `/chat`.
+  they invoke no model. The only provider call site is inside `/chat`, and a `ProviderError`
+  there produces the claim-free fallback turn rather than a 500 (`backend/tests/test_api.py`).
 - No `boto3` / AWS SDK import exists anywhere in `backend/`.
 - The catalog is 8 courses / 9 sections / 6,552 bytes, loaded at import.
-- Backend suite: 127 tests, passing with no key and no network.
+- Backend suite: 152 tests, passing with no key and no network.
 
 **Known documentation drift** (the code is right; read these with the caveat):
 
-- [`architecture.svg`](architecture.svg) and [`project-context.md`](project-context.md) §5–6
-  depict the *target* design — a DynamoDB catalog store, semantic retrieval, an LLM that
-  "explains and ranks", and the serverless stack in §4 above. Those were never built, and the
-  LLM's role has since narrowed to proposing constraints. **Read them as the design and this
-  document as the build.** They are kept, rather than rewritten, because the gap between them is
-  itself the story this document tells.
+- [`project-context.md`](project-context.md) §5–6 depicts the *target* design — a DynamoDB
+  catalog store, semantic retrieval, an LLM that "explains and ranks", and the serverless stack
+  in §4 above. Those were never built, and the LLM's role has since narrowed to proposing
+  constraints. **Read it as the design and this document as the build.** It is kept, rather than
+  rewritten, because the gap between them is itself the story this document tells.
+  ([`architecture.svg`](architecture.svg) used to depict that same target design; it now shows
+  the as-built system, with the original sketch preserved in git history at `1f4b408`.)
 
 Previously listed here and since fixed: `deployment.md` instructed `uv sync --extra llm` and
 `ANTHROPIC_API_KEY=…` (the `llm` extra was removed with the Anthropic backend, so that command

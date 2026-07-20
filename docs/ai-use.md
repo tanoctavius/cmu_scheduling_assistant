@@ -34,7 +34,7 @@ the next stage started. That ordering is visible in the git history (§3).
 | LLM provider abstraction + chat→solver translation | Operator/Agent, human-specified | We specified the constraint: *no code path may let a model touch the calendar.* The agent designed `ScheduleConstraints` and the translation to satisfy it. Reviewed strictly. |
 | Frontend | Operator/Agent → Critic | Agent-generated; we revised the UI directly when it wasn't intuitive (commits `47800c8`, `b8af3c5`). |
 | Learner Lab deploy scripts + guide | **Human-written** | `deploy/user-data.sh`, `deploy/update.sh`, [`deployment.md`](deployment.md) — authored by Ite, merged via PR #1. Not agent output. |
-| Original architecture diagram | **Human-written** | [`architecture.svg`](architecture.svg) — drawn by Wendy. |
+| Original architecture diagram | **Human-written** | Wendy's hand-drawn *target*-design sketch, preserved in git history (`1f4b408`). The current [`architecture.svg`](architecture.svg) is an agent-redrawn **as-built** diagram. |
 | Cloud/architecture decisions | **Human**, agent-implemented | Choosing EC2 over serverless, retiring Bedrock for a provider abstraction, and accepting the 8-course catalog were **our** calls, driven by Learner Lab's constraints. The agent implemented them and wrote them up. |
 | Documentation | Operator/Agent | Including this file. See §5 for why that's worth stating. |
 
